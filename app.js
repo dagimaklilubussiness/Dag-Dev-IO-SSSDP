@@ -419,157 +419,75 @@ const LIB = (() => {
     });
   }
 
-/* ---------------- borrow / approval workflow (Firebase Updated) ---------------- */
-
-// 1. Helper to get Firestore instance securely
-function getFirestoreDB() {
-    return window.db || (typeof firebase !== 'undefined' ? firebase.firestore() : null);
-}
-
-// Student requests a book -> goes directly to Firebase Cloud!
-async function requestBook(studentId, bookId){
+  /* ---------------- borrow / approval workflow ----------------
+     All state changes go through mutate(), which already pushes the whole DB
+     to the shared Firestore doc (see saveDB above) — that single sync path is
+     what makes a student's request show up for admin on another device, so
+     these stay plain synchronous functions returning a result object, exactly
+     as the callers in index.html / admin.html expect (they read res.ok
+     immediately — they don't await a promise). */
+  function requestBook(studentId, bookId){
     const db = getDB();
-    const fs = getFirestoreDB();
     const book = db.books.find(b => b.id === bookId);
-    
     if(!book) return { ok:false, error:"መጽሐፍ አልተገኘም" };
 
-    // Check availability locally first for speed
     const freeCopy = (book.copies||[]).find(c => c.status === 'available');
-    if(!freeCopy){
-        return { ok:false, error:"ኮፒ የለም። ወደ ወረፋ (Reserve) ይግቡ።", canReserve:true };
-    }
+    if(!freeCopy) return { ok:false, error:"ኮፒ የለም። ወደ ወረፋ (Reserve) ይግቡ።", canReserve:true };
 
     const reqRec = {
-        id: uid("rq_"),
-        studentId,
-        bookId,
-        copyId: freeCopy.id,
-        status: "pending",
-        requestedAt: todayISO(),
-        approvedAt: null,
-        dueDate: null,
-        returnedAt: null,
-        approvedBy: null
+      id: uid("rq_"), studentId, bookId, copyId: freeCopy.id,
+      status: "pending", requestedAt: todayISO(), approvedAt: null,
+      dueDate: null, returnedAt: null, approvedBy: null
     };
 
-    if (fs) {
-        try {
-            // Save to Firebase Cloud so Admin can see it instantly!
-            await fs.collection('bookRequests').doc(reqRec.id).set(reqRec);
-        } catch (e) {
-            console.error("Firebase error, falling back to local:", e);
-        }
-    }
-
-    // Keep local state in sync
-    mutate(localDb => {
-        if (!localDb.requests) localDb.requests = [];
-        localDb.requests.push(reqRec);
-        const b = localDb.books.find(x => x.id === bookId);
-        const c = b && b.copies.find(x => x.id === freeCopy.id);
-        if(c) c.status = 'borrowed';
+    mutate(db => {
+      db.requests.push(reqRec);
+      const b = db.books.find(x => x.id === bookId);
+      const c = b && b.copies.find(x => x.id === freeCopy.id);
+      if(c) c.status = 'borrowed';
     });
 
     return { ok:true, request: reqRec };
-}
-
-// Admin approves a request -> updates Firebase Cloud!
-async function approveRequest(requestId, staffName, dueDays){
+  }
+  function approveRequest(requestId, staffName, dueDays){
     const db = getDB();
-    const fs = getFirestoreDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "pending") return;
-
     const finalDue = addDays(todayISO(), dueDays || db.settings.dueDays || DEFAULT_DUE_DAYS);
-
-    if (fs) {
-        try {
-            await fs.collection('bookRequests').doc(requestId).update({
-                status: "borrowed",
-                approvedAt: todayISO(),
-                dueDate: finalDue,
-                approvedBy: staffName
-            });
-        } catch (e) { console.error(e); }
-    }
-
-    mutate(localDb => {
-        const x = localDb.requests.find(x => x.id === requestId);
-        if(x) {
-            x.status = "borrowed";
-            x.approvedAt = todayISO();
-            x.dueDate = finalDue;
-            x.approvedBy = staffName;
-        }
+    mutate(db => {
+      const x = db.requests.find(x => x.id === requestId);
+      if(x){ x.status = "borrowed"; x.approvedAt = todayISO(); x.dueDate = finalDue; x.approvedBy = staffName; }
     });
-}
-
-// Admin rejects a request -> updates Firebase Cloud!
-async function rejectRequest(requestId){
+  }
+  function rejectRequest(requestId){
     const db = getDB();
-    const fs = getFirestoreDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "pending") return;
-
-    if (fs) {
-        try {
-            await fs.collection('bookRequests').doc(requestId).update({ status: "rejected" });
-        } catch (e) { console.error(e); }
-    }
-
-    mutate(localDb => {
-        const x = localDb.requests.find(x => x.id === requestId);
-        if(x) x.status = "rejected";
-        const b = localDb.books.find(x => x.id === r.bookId);
-        const c = b && b.copies.find(x => x.id === r.copyId);
-        if(c) c.status = 'available';
+    mutate(db => {
+      const x = db.requests.find(x => x.id === requestId);
+      if(x) x.status = "rejected";
+      const b = db.books.find(x => x.id === r.bookId);
+      const c = b && b.copies.find(x => x.id === r.copyId);
+      if(c) c.status = 'available';
     });
-}
-
-// Mark book as returned -> updates Firebase Cloud!
-async function markReturned(requestId, damaged){
+  }
+  function markReturned(requestId, damaged){
     const db = getDB();
-    const fs = getFirestoreDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "borrowed") return;
-
-    if (fs) {
-        try {
-            await fs.collection('bookRequests').doc(requestId).update({
-                status: "returned",
-                returnedAt: todayISO()
-            });
-        } catch (e) { console.error(e); }
-    }
-
-    mutate(localDb => {
-        const x = localDb.requests.find(x => x.id === requestId);
-        if(x) {
-            x.status = "returned";
-            x.returnedAt = todayISO();
-        }
-        const b = localDb.books.find(x => x.id === r.bookId);
-        const c = b && b.copies.find(x => x.id === r.copyId);
-        if(c) c.status = damaged ? 'damaged' : 'available';
+    mutate(db => {
+      const x = db.requests.find(x => x.id === requestId);
+      if(x){ x.status = "returned"; x.returnedAt = todayISO(); }
+      const b = db.books.find(x => x.id === r.bookId);
+      const c = b && b.copies.find(x => x.id === r.copyId);
+      if(c) c.status = damaged ? 'damaged' : 'available';
     });
-}
-
-// Adjust due date -> updates Firebase Cloud!
-async function adjustDueDate(requestId, newDueIso){
-    const fs = getFirestoreDB();
-    if (fs) {
-        try {
-            await fs.collection('bookRequests').doc(requestId).update({ dueDate: newDueIso });
-        } catch (e) { console.error(e); }
-    }
-
-    mutate(localDb => {
-        const r = localDb.requests.find(x => x.id === requestId);
-        if(r) r.dueDate = newDueIso;
+  }
+  function adjustDueDate(requestId, newDueIso){
+    mutate(db => {
+      const r = db.requests.find(x => x.id === requestId);
+      if(r) r.dueDate = newDueIso;
     });
-}
-
   }
   function reserveBook(studentId, bookId){
     const db = getDB();

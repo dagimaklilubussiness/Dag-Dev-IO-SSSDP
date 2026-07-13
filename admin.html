@@ -777,29 +777,7 @@ window.SSSDP_REFRESH = function(){
     const staff = LIB.currentStaff();
     if(staff) bootApp();
   });
-})(); 
-         // Firebase Live Listener for Admin Requests (Clean Syntax)
-    const fs = window.db || (typeof firebase !== 'undefined' ? firebase.firestore() : null);
-    if (fs) {
-        fs.collection('bookRequests').onSnapshot(function(snapshot) {
-            snapshot.docChanges().forEach(function(change) {
-                const requestData = change.doc.data();
-                mutate(localDb => {
-                    if (!localDb.requests) localDb.requests = [];
-                    const index = localDb.requests.findIndex(r => r.id === change.doc.id);
-                    if (change.type === "added" || change.type === "modified") {
-                        if (index > -1) { localDb.requests[index] = requestData; } 
-                        else { localDb.requests.push(requestData); }
-                    } else if (change.type === "removed") {
-                        if (index > -1) localDb.requests.splice(index, 1);
-                    }
-                });
-            });
-            if (typeof window.SSSDP_REFRESH === 'function') { window.SSSDP_REFRESH(); }
-            console.log("Admin Dashboard Synced with Firebase Live!");
-        });
-    }
-
+})();
 </script>
 </body>
 </html>
