@@ -86,8 +86,31 @@ const LIB = (() => {
   let _dbCache = null;
   let _ready = false;
   let _readyQueue = [];
-  let _fsDocRef = null;
   let _cloudEnabled = false;
+
+  // The DB is split across three Firestore documents so that image-heavy data
+  // (student photos, book covers, announcement attachments) can never block
+  // small, high-frequency writes like book requests or comments. See saveDB().
+  //   core     -> settings, staff, students, books   (has photos — can grow large)
+  //   activity -> requests, reservations, comments   (small, text-only, never blocked)
+  //   feed     -> announcements                      (can have images, isolated from activity)
+  const SLICE_KEYS = {
+    core: ["settings", "staff", "students", "books"],
+    activity: ["requests", "reservations", "comments"],
+    feed: ["announcements"]
+  };
+  let _fsRefs = { core: null, activity: null, feed: null };
+  let _sliceCache = { core: null, activity: null, feed: null };
+  let _slicesLoaded = { core: false, activity: false, feed: false };
+
+  function sliceOf(db, keys){
+    const o = {};
+    keys.forEach(k => o[k] = db[k]);
+    return o;
+  }
+  function composeFromSlices(){
+    return normalizeDB(Object.assign({}, _sliceCache.core, _sliceCache.activity, _sliceCache.feed));
+  }
 
   function normalizeDB(db){
     if(!db) return db;
@@ -109,29 +132,35 @@ const LIB = (() => {
 
   function loadDB(){ return _dbCache || loadLocalCache() || seedDB(); }
   function getDB(){ return loadDB(); }
-  // Firestore hard-caps a single document at ~1MiB. This whole app syncs the entire
-  // DB (including base64 book covers / student photos) as ONE document, so once
-  // enough images pile up a save can silently fail past that ceiling. We warn well
-  // before the real limit so it shows up as a visible banner, not a mystery "my
-  // request never reached admin" bug.
+  // Firestore hard-caps a single document at ~1MiB. The DB is split into three
+  // documents (see SLICE_KEYS above) specifically so that base64 photos piling up
+  // in `core` can NEVER block a write to `activity` (requests/comments) or `feed`
+  // (announcements) — each slice is saved independently. We still warn well before
+  // the real 1MB ceiling on whichever slice is getting close, so it shows up as a
+  // visible banner instead of a mystery "my request never reached admin" bug.
   const FIRESTORE_DOC_SOFT_LIMIT = 900000;
   function saveDB(db){
     _dbCache = db;
     saveLocalCache(db); // keep the local mirror fresh for instant next-load
-    if(_cloudEnabled && _fsDocRef){
-      const json = JSON.stringify(db);
+    if(!_cloudEnabled || !_fsRefs.core) return;
+    Object.keys(SLICE_KEYS).forEach(sliceName => {
+      const slice = sliceOf(db, SLICE_KEYS[sliceName]);
+      const json = JSON.stringify(slice);
       if(json.length > FIRESTORE_DOC_SOFT_LIMIT){
-        const msg = "SSSDP: shared database is " + Math.round(json.length/1024) + "KB — close to Firestore's 1MB per-document limit. New changes (like a book request) may silently fail to reach other devices. Remove/compress some book cover or student photo images.";
+        const msg = "SSSDP: '" + sliceName + "' data is " + Math.round(json.length/1024) + "KB — close to Firestore's 1MB per-document limit. Remove/compress some photos in that area.";
         console.error(msg);
         window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
       }
-      _fsDocRef.set({ json, updatedAt: Date.now() })
+      // Keep our in-memory slice cache in sync immediately so a rapid second mutate
+      // (before the snapshot echoes back) composes from up-to-date data.
+      _sliceCache[sliceName] = slice;
+      _fsRefs[sliceName].set({ json, updatedAt: Date.now() })
         .catch(err => {
-          const msg = "SSSDP: cloud save failed — " + (err && err.message ? err.message : err);
+          const msg = "SSSDP: cloud save failed (" + sliceName + ") — " + (err && err.message ? err.message : err);
           console.error(msg, err);
           window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
         });
-    }
+    });
   }
   function mutate(fn){ const db = loadDB(); fn(db); saveDB(db); return db; }
 
@@ -141,40 +170,80 @@ const LIB = (() => {
   function ready(cb){ if(_ready) cb(); else _readyQueue.push(cb); }
   function flushReady(){ const q = _readyQueue; _readyQueue = []; q.forEach(cb => { try{ cb(); }catch(e){ console.error(e); } }); }
 
+  // Attaches a live listener to each of the 3 slice docs. Once all 3 have delivered
+  // at least one snapshot, composes the merged DB and flips _ready (or, on later
+  // updates, tells the page to re-render — this is how changes made on another
+  // device/browser show up here in real time).
+  function attachSliceListeners(){
+    Object.keys(_fsRefs).forEach(sliceName => {
+      _fsRefs[sliceName].onSnapshot(snap => {
+        let data = null;
+        if(snap.exists && snap.data() && snap.data().json){
+          try { data = JSON.parse(snap.data().json); } catch(e){ data = null; }
+        }
+        _sliceCache[sliceName] = data || sliceOf(seedDB(), SLICE_KEYS[sliceName]);
+        _slicesLoaded[sliceName] = true;
+        if(_slicesLoaded.core && _slicesLoaded.activity && _slicesLoaded.feed){
+          _dbCache = composeFromSlices();
+          saveLocalCache(_dbCache);
+          if(!_ready){ _ready = true; flushReady(); }
+          else { window.SSSDP_REFRESH && window.SSSDP_REFRESH(); } // live update from another device
+        }
+      }, err => {
+        console.error("SSSDP: '" + sliceName + "' sync error — check firebase-config.js and Firestore security rules", err);
+        if(!_ready){ _dbCache = loadLocalCache() || seedDB(); _ready = true; flushReady(); }
+      });
+    });
+  }
+
+  // One-time migration: older deployments of this app stored everything in a
+  // single doc at sssdp/main. If that doc exists and the new split docs don't yet,
+  // read it once and fan it out into core/activity/feed so no existing data is lost.
+  function migrateOrSeed(fs){
+    return fs.collection("sssdp").doc("main").get().then(oldSnap => {
+      let full = null;
+      if(oldSnap.exists && oldSnap.data() && oldSnap.data().json){
+        try { full = normalizeDB(JSON.parse(oldSnap.data().json)); } catch(e){ full = null; }
+      }
+      if(!full) full = normalizeDB(loadLocalCache() || seedDB());
+      const batch = fs.batch();
+      Object.keys(SLICE_KEYS).forEach(sliceName => {
+        batch.set(_fsRefs[sliceName], { json: JSON.stringify(sliceOf(full, SLICE_KEYS[sliceName])), updatedAt: Date.now() });
+      });
+      return batch.commit();
+    });
+  }
+
   function initCloud(){
     if(!window.FIREBASE_CONFIG || !window.firebase){
       // No firebase-config.js / SDK found — falls back to old device-only localStorage behavior.
       console.warn("SSSDP: running WITHOUT cloud sync — set up firebase-config.js so student accounts work across devices.");
+      _dbCache = loadLocalCache() || seedDB();
       _ready = true; flushReady();
       return;
     }
     try{
       firebase.initializeApp(window.FIREBASE_CONFIG);
       const fs = firebase.firestore();
-      _fsDocRef = fs.collection("sssdp").doc("main");
+      _fsRefs.core = fs.collection("sssdp").doc("core");
+      _fsRefs.activity = fs.collection("sssdp").doc("activity");
+      _fsRefs.feed = fs.collection("sssdp").doc("feed");
       _cloudEnabled = true;
-      _fsDocRef.onSnapshot(snap => {
-        let remote = null;
-        if(snap.exists && snap.data() && snap.data().json){
-          try { remote = JSON.parse(snap.data().json); } catch(e){ remote = null; }
-        }
-        if(remote){
-          _dbCache = normalizeDB(remote);
-          saveLocalCache(_dbCache);
+
+      _fsRefs.core.get().then(coreSnap => {
+        if(coreSnap.exists){
+          attachSliceListeners();
         } else {
-          // First-ever run for this school: seed the shared cloud DB once.
-          const seeded = _dbCache || loadLocalCache() || seedDB();
-          _dbCache = seeded;
-          _fsDocRef.set({ json: JSON.stringify(seeded), updatedAt: Date.now() }).catch(()=>{});
+          return migrateOrSeed(fs).then(attachSliceListeners);
         }
-        if(!_ready){ _ready = true; flushReady(); }
-        else { window.SSSDP_REFRESH && window.SSSDP_REFRESH(); } // live update from another device
-      }, err => {
+      }).catch(err => {
         console.error("SSSDP: cloud sync error — check firebase-config.js and Firestore security rules", err);
-        if(!_ready){ _dbCache = loadLocalCache() || seedDB(); _ready = true; flushReady(); }
+        _dbCache = loadLocalCache() || seedDB();
+        _ready = true; flushReady();
       });
     } catch(e){
       console.error("SSSDP: cloud init failed", e);
+      _dbCache = loadLocalCache() || seedDB();
       _ready = true; flushReady();
     }
   }
