@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin • SSSDP</title>
+<meta name="theme-color" content="#121212">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a href="#mainArea" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
+
+<!-- ===================== AUTH SCREEN ===================== -->
+<div id="authScreen" class="auth-wrap">
+  <div class="auth-card">
+    <div class="tibeb-strip thin"></div>
+    <div class="auth-card-inner">
+      <div class="auth-logo">
+        <div class="logo-badge" id="logoBadgeAuth"><img src="assets/school-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+        <div class="brand-name" id="brandNameAuth">Admin Console<small>Director & Library Staff</small></div>
+      </div>
+      <div id="authMsg" aria-live="polite"></div>
+      <form id="loginForm">
+        <div class="field"><label for="loginUser">የተጠቃሚ ስም</label><input id="loginUser" required autocomplete="username"></div>
+        <div class="field">
+          <label for="loginPw">የይለፍ ቃል</label>
+          <div class="pw-wrap">
+            <input id="loginPw" type="password" required autocomplete="current-password">
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="የይለፍ ቃል አሳይ/ደብቅ">👁</button>
+          </div>
+        </div>
+        <button class="btn primary block" type="submit">ግባ</button>
+        <p class="helper-link">ተማሪ ነዎት? <a href="index.html">የተማሪ መግቢያ →</a></p>
+      </form>
+      <p class="hint" style="text-align:center;margin-top:10px;color:var(--grey);font-size:11px;">Demo logins — director / director123 &nbsp;|&nbsp; library / library123</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="appShell" class="admin-shell hidden">
+  <div class="sidebar">
+    <div class="logo-row">
+      <div class="logo-badge" id="logoBadgeSide" style="width:32px;height:32px;font-size:13px;"><img src="assets/school-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+      <div style="font-weight:800;font-size:13px;color:#fff;" id="brandNameSide">Admin Console</div>
+    </div>
+    <div class="tibeb-strip thin" style="margin-bottom:8px;"></div>
+    <button class="side-link active" data-view="Dashboard">📊 Dashboard</button>
+    <button class="side-link" data-view="Students">🎓 Students</button>
+    <button class="side-link" data-view="Books">📚 Books</button>
+    <button class="side-link" data-view="Requests">📥 Requests & Loans</button>
+    <button class="side-link" data-view="Reservations">⏳ Reservations</button>
+    <button class="side-link" data-view="Announcements">📢 Announcements</button>
+    <button class="side-link" data-view="Staff" id="navStaff">🧑‍💼 Staff (Director)</button>
+    <button class="side-link" data-view="Settings">⚙️ Settings & Backup</button>
+    <button class="side-link" id="logoutBtn" style="margin-top:8px;">🚪 Logout</button>
+    <div class="side-role" id="roleTag"></div>
+  </div>
+
+  <div class="admin-main" id="mainArea"></div>
+</div>
+<footer class="watermark" id="appShellFooter" style="display:none;">
+  <img src="assets/developer-logo.png" alt="" style="height:16px;vertical-align:middle;margin-inline-end:5px;border-radius:3px;" onerror="this.style.display='none'">
+  © 2026 <a href="https://t.me/dagdevio" target="_blank" rel="noopener">DAG DEV IO</a> — t.me/dagdevio
+</footer>
+
+<div id="modalRoot"></div>
+
+<script src="app.js"></script>
+<script>
+LIB.applyTheme();
+(function wireLogos(){
+  const s = LIB.getSettings();
+  const fallback = (s.schoolName||'A')[0];
+  document.getElementById('brandNameAuth').firstChild.nodeValue = s.portalName ? s.portalName.split(' — ')[0] + ' ' : 'Admin Console ';
+  document.getElementById('brandNameSide').textContent = s.portalName ? s.portalName.split(' — ')[0] : 'Admin Console';
+  document.title = 'Admin • ' + (s.portalName||'SSSDP');
+  document.querySelectorAll('#logoBadgeAuth img, #logoBadgeSide img').forEach(img => {
+    if(s.logoUrl){
+      img.src = s.logoUrl; img.style.display='';
+      img.addEventListener('error', () => { img.style.display='none'; img.parentElement.textContent = fallback; }, { once:true });
+    } else {
+      img.addEventListener('error', function onLocalErr(){
+        img.removeEventListener('error', onLocalErr);
+        img.style.display='none'; img.parentElement.textContent = fallback;
+      }, { once:true });
+    }
+  });
+})();
+
+let CURRENT = null; // staff record
+
+document.getElementById('pwToggle').onclick = () => {
+  const inp = document.getElementById('loginPw');
+  inp.type = inp.type==='password'?'text':'password';
+};
+
+document.getElementById('loginForm').onsubmit = (e) => {
+  e.preventDefault();
+  const u = document.getElementById('loginUser').value;
+  const p = document.getElementById('loginPw').value;
+  const res = LIB.staffLogin(u, p);
+  const msg = document.getElementById('authMsg');
+  if(!res.ok){ msg.innerHTML = `<div class="msg error">${LIB.escapeHtml(res.error)}</div>`; return; }
+  bootApp();
+};
+document.getElementById('logoutBtn').onclick = () => { LIB.clearSession(); location.reload(); };
+
+function bootApp(){
+  CURRENT = LIB.currentStaff();
+  if(!CURRENT){ return; }
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+  document.getElementById('appShellFooter').style.display = 'block';
+  document.getElementById('roleTag').textContent = `${CURRENT.name} — ${CURRENT.role==='director'?'Director':'Library Staff'}`;
+  if(CURRENT.role !== 'director') document.getElementById('navStaff').classList.add('hidden');
+  document.querySelectorAll('.side-link[data-view]').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.side-link[data-view]').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      render(btn.dataset.view);
+    };
+  });
+  render('Dashboard');
+}
+
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
+function openModal(html){ document.getElementById('modalRoot').innerHTML = `<div class="modal-overlay" id="ov" role="dialog" aria-modal="true">${html}</div>`;
+  document.getElementById('ov').addEventListener('click', (e)=>{ if(e.target.id==='ov') closeModal(); }); }
+
+function render(view){
+  const area = document.getElementById('mainArea');
+  if(view==='Dashboard') return renderDashboard(area);
+  if(view==='Students') return renderStudents(area);
+  if(view==='Books') return renderBooks(area);
+  if(view==='Requests') return renderRequests(area);
+  if(view==='Reservations') return renderReservations(area);
+  if(view==='Announcements') return renderAnnouncements(area);
+  if(view==='Staff') return renderStaff(area);
+  if(view==='Settings') return renderSettings(area);
+}
+
+function avatarHtml(person, size){
+  const cls = size==='lg' ? ' lg' : '';
+  if(person.photo) return `<img class="avatar${cls}" src="${LIB.escapeAttr(person.photo)}" alt="">`;
+  const initial = (person.name||'?').trim()[0] || '?';
+  return `<div class="avatar-fallback${cls}">${LIB.escapeHtml(initial)}</div>`;
+}
+
+/* ================= DASHBOARD ================= */
+function renderDashboard(area){
+  const db = LIB.getDB();
+  const overdue = LIB.allOverdue();
+  const pending = LIB.allPending();
+  const borrowed = LIB.allBorrowed();
+  area.innerHTML = `
+    <h2>📊 Dashboard</h2>
+    <div class="stat-row">
+      <div class="stat-box"><div class="n">${db.students.length}</div><div class="l">Registered Students</div></div>
+      <div class="stat-box"><div class="n">${db.books.length}</div><div class="l">Book Titles</div></div>
+      <div class="stat-box"><div class="n">${borrowed.length}</div><div class="l">Currently Borrowed</div></div>
+      <div class="stat-box"><div class="n" style="color:${overdue.length?'var(--danger)':'inherit'}">${overdue.length}</div><div class="l">Overdue</div></div>
+    </div>
+
+    ${pending.length ? `<div class="msg warn" style="padding:12px;border-radius:10px;margin-bottom:14px;">📥 ${pending.length} pending borrow request(s) waiting for approval — see "Requests & Loans".</div>` : ''}
+
+    <div class="section-title"><h2>⚠ Overdue students</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Student</th><th>Book</th><th>Due Date</th><th>Days Overdue</th></tr></thead><tbody>
+      ${overdue.length ? overdue.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        return `<tr class="overdue-row"><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${LIB.fmtDate(r.dueDate)}</td><td>${Math.abs(LIB.daysLeft(r.dueDate))}</td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No overdue books 🎉</td></tr>`}
+      </tbody></table>
+    </div>
+  `;
+}
+
+/* ================= STUDENTS ================= */
+function renderStudents(area){
+  area.innerHTML = `
+    <h2>🎓 Students</h2>
+    <div class="search-bar">
+      <input id="stuSearch" placeholder="Search by any part of the name, or FAN..." aria-label="Search students">
+      <button class="btn primary" id="addStuBtn">+ Register Student</button>
+    </div>
+    <div class="table-wrap card"><table><thead>
+      <tr><th></th><th>Name</th><th>Class</th><th>FAN</th><th>Status</th><th>In Hand</th><th></th></tr>
+    </thead><tbody id="stuTbody"></tbody></table></div>
+  `;
+  const draw = () => {
+    const q = document.getElementById('stuSearch').value;
+    const list = LIB.searchStudents(q);
+    const db = LIB.getDB();
+    document.getElementById('stuTbody').innerHTML = list.map(s => {
+      const inHand = db.requests.filter(r=>r.studentId===s.id && r.status==='borrowed').length;
+      return `<tr>
+        <td>${avatarHtml(s)}</td>
+        <td><b>${LIB.escapeHtml(s.name)}</b></td>
+        <td>${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''}</td>
+        <td>${LIB.escapeHtml(s.fan)}</td>
+        <td>${s.activated?'<span class="badge ok">Active</span>':'<span class="badge grey">Not Activated</span>'}</td>
+        <td>${inHand}</td>
+        <td class="row-actions">
+          <button class="btn sm outline" data-view-stu="${s.id}">View</button>
+          <button class="btn sm outline" data-reset-stu="${s.id}">Reset PIN</button>
+        </td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:16px;">No students found</td></tr>`;
+    document.querySelectorAll('[data-view-stu]').forEach(b=>b.onclick=()=>viewStudentModal(b.dataset.viewStu));
+    document.querySelectorAll('[data-reset-stu]').forEach(b=>b.onclick=()=>resetPinModal(b.dataset.resetStu));
+  };
+  document.getElementById('stuSearch').oninput = draw;
+  document.getElementById('addStuBtn').onclick = addStudentModal;
+  draw();
+}
+
+function addStudentModal(){
+  openModal(`
+    <div class="modal-box">
+      <h3>Register Student</h3>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">Only the 16-digit FAN is required — no FIN needed.</p>
+      <div class="field"><label>Full Name</label><input id="mName"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Class</label><input id="mClass" placeholder="e.g. 10"></div>
+        <div class="field"><label>Section</label><input id="mSection" placeholder="e.g. A"></div>
+      </div>
+      <div class="field"><label>Age</label><input id="mAge" type="number"></div>
+      <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16"></div>
+      <div id="mErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="mSave">Register</button>
+      </div>
+    </div>`);
+  document.getElementById('mSave').onclick = () => {
+    const res = LIB.adminRegisterStudent({
+      name: document.getElementById('mName').value,
+      klass: document.getElementById('mClass').value,
+      section: document.getElementById('mSection').value,
+      age: document.getElementById('mAge').value,
+      fan: document.getElementById('mFan').value
+    });
+    if(!res.ok){ document.getElementById('mErr').textContent = res.error; return; }
+    closeModal(); render('Students');
+  };
+}
+
+function viewStudentModal(id){
+  const s = LIB.getDB().students.find(x=>x.id===id);
+  const reqs = LIB.myRequests(id);
+  openModal(`
+    <div class="modal-box">
+      <h3>${LIB.escapeHtml(s.name)}</h3>
+      <div class="avatar-row" style="margin-bottom:12px;">
+        ${avatarHtml(s,'lg')}
+        <label class="btn sm outline avatar-upload">Change Photo
+          <input type="file" accept="image/*" id="stuPhotoInput">
+        </label>
+        ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}
+      </div>
+      <p style="font-size:13px;color:var(--grey);">Class ${LIB.escapeHtml(String(s.class||''))}/${LIB.escapeHtml(String(s.section||''))} • Age ${s.age||'—'}</p>
+      <div class="field"><label>FAN</label><div>${LIB.escapeHtml(s.fan)}</div></div>
+      <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
+      <div class="field"><label>Borrow history</label>
+        <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
+          const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
+          return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
+        }).join('<br>') : 'No history'}</div>
+      </div>
+      <div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>
+    </div>`);
+  document.getElementById('stuPhotoInput').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.fileToResizedDataURL(f, 300, (dataUrl) => {
+      if(!dataUrl) return alert('ምስሉን ማንበብ አልተቻለም');
+      LIB.adminSetStudentPhoto(id, dataUrl);
+      closeModal(); viewStudentModal(id); render('Students');
+    });
+  };
+  const clearBtn = document.getElementById('stuPhotoClear');
+  if(clearBtn) clearBtn.onclick = () => { LIB.adminSetStudentPhoto(id, ''); closeModal(); viewStudentModal(id); render('Students'); };
+}
+
+function resetPinModal(id){
+  openModal(`
+    <div class="modal-box">
+      <h3>Reset Student PIN</h3>
+      <div class="field"><label>New 4-digit PIN</label><input id="rpPin" class="pin-input" inputmode="numeric" maxlength="4"></div>
+      <div id="rpErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="rpSave">Save</button>
+      </div>
+    </div>`);
+  document.getElementById('rpSave').onclick = () => {
+    const pin = document.getElementById('rpPin').value;
+    const res = LIB.adminSetStudentPin(id, pin);
+    if(!res.ok){ document.getElementById('rpErr').textContent = res.error; return; }
+    closeModal(); render('Students');
+  };
+}
+
+/* ================= BOOKS ================= */
+function renderBooks(area){
+  area.innerHTML = `
+    <h2>📚 Books</h2>
+    <div class="search-bar">
+      <input id="bkSearch" placeholder="Search title, author, or category..." aria-label="Search books">
+      <select id="bkCatFilter" aria-label="Filter by category"><option value="all">All categories</option>${LIB.CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+      <button class="btn primary" id="addBkBtn">+ Add Book</button>
+    </div>
+    <div class="grid cols-3" id="bkGrid"></div>
+  `;
+  const draw = () => {
+    const q = document.getElementById('bkSearch').value;
+    const cat = document.getElementById('bkCatFilter').value;
+    const list = LIB.searchBooks({query:q, category:cat});
+    document.getElementById('bkGrid').innerHTML = list.map(b => {
+      const stats = LIB.bookStats(b);
+      return `
+      <div class="card">
+        <div style="display:flex;gap:10px;">
+          ${b.coverUrl?`<img class="cover-thumb" src="${LIB.escapeAttr(b.coverUrl)}" alt="">`:`<div class="cover-thumb" style="display:flex;align-items:center;justify-content:center;">📕</div>`}
+          <div style="flex:1;min-width:0;">
+            <h4 style="margin-bottom:2px;">${LIB.escapeHtml(b.title)}</h4>
+            <div style="font-size:12px;color:var(--grey);margin-bottom:4px;">${LIB.escapeHtml(b.author||'')} • ${b.category}</div>
+            <div class="stars">${LIB.stars(b.quality)}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;margin:8px 0 2px;">Available: ${stats.available}/${stats.total} &nbsp;•&nbsp; Borrowed: ${stats.borrowed} &nbsp;•&nbsp; Damaged: ${stats.damaged} &nbsp;•&nbsp; Lost: ${stats.lost}</div>
+        <div style="font-size:11.5px;color:var(--grey);margin-bottom:8px;">${LIB.escapeHtml(b.condition||'')}</div>
+        <div class="row-actions">
+          <button class="btn sm outline" data-edit-bk="${b.id}">Edit / Manage Copies</button>
+          <button class="btn sm danger" data-del-bk="${b.id}">Delete</button>
+        </div>
+      </div>`;
+    }).join('') || `<div class="empty"><span class="ic">📭</span>No books</div>`;
+    document.querySelectorAll('[data-edit-bk]').forEach(b=>b.onclick=()=>bookModal(b.dataset.editBk));
+    document.querySelectorAll('[data-del-bk]').forEach(b=>b.onclick=()=>{ if(confirm('Delete this book?')){ LIB.removeBook(b.dataset.delBk); draw(); } });
+  };
+  document.getElementById('bkSearch').oninput = draw;
+  document.getElementById('bkCatFilter').onchange = draw;
+  document.getElementById('addBkBtn').onclick = () => bookModal();
+  draw();
+}
+
+function bookModal(id){
+  const b = id ? LIB.getDB().books.find(x=>x.id===id) : null;
+  const stats = b ? LIB.bookStats(b) : null;
+  openModal(`
+    <div class="modal-box">
+      <h3>${b?'Edit Book':'Add Book'}</h3>
+      <div class="field"><label>Cover Image</label>
+        <div class="avatar-row">
+          ${b&&b.coverUrl?`<img class="cover-thumb" src="${LIB.escapeAttr(b.coverUrl)}" alt="">`:`<div class="cover-thumb" style="display:flex;align-items:center;justify-content:center;">📕</div>`}
+          <label class="btn sm outline avatar-upload">Upload<input type="file" accept="image/*" id="bCoverFile"></label>
+        </div>
+      </div>
+      <div class="field"><label>Title</label><input id="bTitle" value="${b?LIB.escapeAttr(b.title):''}"></div>
+      <div class="field"><label>Author</label><input id="bAuthor" value="${b?LIB.escapeAttr(b.author||''):''}"></div>
+      <div class="field"><label>Category</label>
+        <select id="bCat">${LIB.CATEGORIES.map(c=>`<option value="${c}" ${b&&b.category===c?'selected':''}>${c}</option>`).join('')}</select>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Quality (1-5)</label><input id="bQuality" type="number" min="1" max="5" value="${b?b.quality:4}"></div>
+        <div class="field"><label>Total Copies</label><input id="bTotal" type="number" min="0" value="${b?stats.total:1}"></div>
+      </div>
+      <div class="field"><label>Condition notes</label><input id="bCond" value="${b?LIB.escapeAttr(b.condition||''):''}" placeholder="e.g. New, minor wear"></div>
+      ${b ? `<div class="field"><label>Per-copy status (click to cycle)</label>
+        <div class="copy-chip-row" id="copyChipRow">${b.copies.map((c,i)=>`<button type="button" class="copy-chip ${c.status}" data-copy="${c.id}">#${i+1} ${LIB.COPY_STATUS_LABEL[c.status]}</button>`).join('')}</div>
+      </div>` : ''}
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="bSave">${b?'Save':'Add'}</button>
+      </div>
+    </div>`);
+  let pendingCover = b ? b.coverUrl : '';
+  document.getElementById('bCoverFile').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.fileToResizedDataURL(f, 500, (dataUrl) => { if(dataUrl) pendingCover = dataUrl; });
+  };
+  if(b){
+    document.querySelectorAll('#copyChipRow [data-copy]').forEach(chip => {
+      chip.onclick = () => {
+        const order = ['available','borrowed','damaged','lost'];
+        const cur = b.copies.find(c=>c.id===chip.dataset.copy).status;
+        const next = order[(order.indexOf(cur)+1) % order.length];
+        LIB.setCopyStatus(b.id, chip.dataset.copy, next);
+        closeModal(); bookModal(b.id);
+      };
+    });
+  }
+  document.getElementById('bSave').onclick = () => {
+    const payload = {
+      title: document.getElementById('bTitle').value,
+      author: document.getElementById('bAuthor').value,
+      category: document.getElementById('bCat').value,
+      quality: document.getElementById('bQuality').value,
+      condition: document.getElementById('bCond').value,
+      coverUrl: pendingCover,
+      totalCopies: document.getElementById('bTotal').value
+    };
+    if(b) LIB.editBook(b.id, payload); else {
+      LIB.addBook(payload);
+      const newTitle = payload.title;
+      LIB.postAnnouncement({ title:'📗 አዲስ መጽሐፍ ደርሷል', body:`"${newTitle}" አሁን በቤተ-መጻሕፍት ውስጥ ይገኛል!`,
+        mediaUrl:'', mediaType:'', postedBy: CURRENT.name, postedByRole: CURRENT.role });
+    }
+    closeModal(); render('Books');
+  };
+}
+
+/* ================= REQUESTS & LOANS ================= */
+function renderRequests(area){
+  const db = LIB.getDB();
+  const pending = LIB.allPending();
+  const borrowed = LIB.allBorrowed();
+  area.innerHTML = `
+    <h2>📥 Requests & Loans</h2>
+    <div class="tabs">
+      <button class="tab-btn active" data-t="pending">Pending Approval (${pending.length})</button>
+      <button class="tab-btn" data-t="borrowed">Currently Borrowed (${borrowed.length})</button>
+    </div>
+    <div id="reqPanel"></div>
+  `;
+  const drawPending = () => {
+    document.getElementById('reqPanel').innerHTML = `
+      <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Requested</th><th></th></tr></thead><tbody>
+      ${pending.length ? pending.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        return `<tr><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${LIB.fmtDate(r.requestedAt)}</td>
+          <td class="row-actions"><button class="btn sm primary" data-appr="${r.id}">Approve</button><button class="btn sm danger" data-rej="${r.id}">Reject</button></td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No pending requests</td></tr>`}
+      </tbody></table></div>`;
+    document.querySelectorAll('[data-appr]').forEach(b=>b.onclick=()=>{ LIB.approveRequest(b.dataset.appr, CURRENT.name); render('Requests'); });
+    document.querySelectorAll('[data-rej]').forEach(b=>b.onclick=()=>{ LIB.rejectRequest(b.dataset.rej); render('Requests'); });
+  };
+  const drawBorrowed = () => {
+    document.getElementById('reqPanel').innerHTML = `
+      <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Due Date</th><th></th></tr></thead><tbody>
+      ${borrowed.length ? borrowed.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        const overdue = LIB.isOverdue(r.dueDate);
+        return `<tr class="${overdue?'overdue-row':''}"><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td>
+          <td>${LIB.fmtDate(r.dueDate)}</td>
+          <td class="row-actions">
+            <button class="btn sm outline" data-adjust="${r.id}">Adjust Due</button>
+            <button class="btn sm primary" data-return="${r.id}">Mark Returned</button>
+            <button class="btn sm danger" data-return-dmg="${r.id}">Returned Damaged</button>
+          </td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No active loans</td></tr>`}
+      </tbody></table></div>`;
+    document.querySelectorAll('[data-return]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.return, false); render('Requests'); });
+    document.querySelectorAll('[data-return-dmg]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.returnDmg, true); render('Requests'); });
+    document.querySelectorAll('[data-adjust]').forEach(b=>b.onclick=()=>adjustDueModal(b.dataset.adjust));
+  };
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.onclick = () => {
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      btn.dataset.t==='pending' ? drawPending() : drawBorrowed();
+    };
+  });
+  drawPending();
+}
+
+function adjustDueModal(reqId){
+  const r = LIB.getDB().requests.find(x=>x.id===reqId);
+  openModal(`
+    <div class="modal-box">
+      <h3>Adjust Due Date</h3>
+      <div class="field"><label>New due date</label><input id="newDue" type="date" value="${r.dueDate?r.dueDate.slice(0,10):''}"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="dueSave">Save</button>
+      </div>
+    </div>`);
+  document.getElementById('dueSave').onclick = () => {
+    const v = document.getElementById('newDue').value;
+    if(v) LIB.adjustDueDate(reqId, new Date(v).toISOString());
+    closeModal(); render('Requests');
+  };
+}
+
+/* ================= RESERVATIONS ================= */
+function renderReservations(area){
+  const db = LIB.getDB();
+  area.innerHTML = `<h2>⏳ Reservations / Waitlist</h2>
+    <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Reserved On</th><th></th></tr></thead><tbody>
+    ${db.reservations.length ? db.reservations.map(r=>{
+      const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+      return `<tr><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${LIB.fmtDate(r.date)}</td>
+        <td><button class="btn sm danger" data-cancel-res="${r.id}">Cancel</button></td></tr>`;
+    }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No reservations</td></tr>`}
+    </tbody></table></div>`;
+  document.querySelectorAll('[data-cancel-res]').forEach(b=>b.onclick=()=>{ LIB.cancelReservation(b.dataset.cancelRes); render('Reservations'); });
+}
+
+/* ================= ANNOUNCEMENTS ================= */
+function renderAnnouncements(area){
+  const anns = LIB.listAnnouncements();
+  area.innerHTML = `
+    <h2>📢 Announcements</h2>
+    <div class="card">
+      <div class="field"><label>Title</label><input id="anTitle"></div>
+      <div class="field"><label>Message</label><textarea id="anBody" rows="3"></textarea></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Media URL (image/video, optional)</label><input id="anMedia"></div>
+        <div class="field"><label>Media Type</label><select id="anMediaType"><option value="">None</option><option value="image">Image</option><option value="video">Video</option></select></div>
+      </div>
+      <button class="btn primary" id="anPost">Post Announcement</button>
+      <p style="font-size:11.5px;color:var(--grey);margin-top:8px;">Posts show as coming from you (${LIB.escapeHtml(CURRENT.name)}) and are labeled Director or Library Staff, so students can tell who posted what.</p>
+    </div>
+    <div class="section-title"><h2>History</h2></div>
+    <div id="anList"></div>
+  `;
+  document.getElementById('anList').innerHTML = anns.map(a => `
+    <div class="card ann-card">
+      <div class="ann-meta"><span class="who">${LIB.escapeHtml(a.postedBy)}</span><span class="badge grey">${a.postedByRole}</span><span>${LIB.fmtDate(a.date)}</span>
+        <span class="views badge grey" title="Like Telegram/YouTube view counts">👁 ${a.views?a.views.length:0} views</span></div>
+      <h4 style="margin:0 0 4px;">${LIB.escapeHtml(a.title)}</h4>
+      <p>${LIB.escapeHtml(a.body)}</p>
+      <button class="btn sm danger" data-del-an="${a.id}">Delete</button>
+    </div>`).join('') || `<div class="empty">No announcements yet</div>`;
+  document.querySelectorAll('[data-del-an]').forEach(b=>b.onclick=()=>{ LIB.removeAnnouncement(b.dataset.delAn); render('Announcements'); });
+  document.getElementById('anPost').onclick = () => {
+    const title = document.getElementById('anTitle').value.trim();
+    const body = document.getElementById('anBody').value.trim();
+    if(!title || !body) return alert('Title and message required');
+    LIB.postAnnouncement({ title, body, mediaUrl: document.getElementById('anMedia').value,
+      mediaType: document.getElementById('anMediaType').value, postedBy: CURRENT.name, postedByRole: CURRENT.role });
+    render('Announcements');
+  };
+}
+
+/* ================= STAFF (director only) ================= */
+function renderStaff(area){
+  if(CURRENT.role !== 'director'){ area.innerHTML = `<div class="empty">🔒 Director access only</div>`; return; }
+  const db = LIB.getDB();
+  area.innerHTML = `
+    <h2>🧑‍💼 Staff Accounts</h2>
+    <div class="card">
+      <div class="grid cols-2">
+        <div class="field"><label>Name</label><input id="sfName"></div>
+        <div class="field"><label>Username</label><input id="sfUser"></div>
+        <div class="field"><label>Password</label><input id="sfPw"></div>
+        <div class="field"><label>Role</label><select id="sfRole"><option value="library">Library Staff</option><option value="director">Director</option></select></div>
+      </div>
+      <button class="btn primary" id="sfAdd">+ Add Staff</button>
+    </div>
+    <div class="table-wrap card" style="margin-top:12px;"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead><tbody>
+      ${db.staff.map(s=>`<tr><td>${LIB.escapeHtml(s.name)}</td><td>${LIB.escapeHtml(s.username)}</td><td>${s.role}</td>
+        <td>${s.id!==CURRENT.id?`<button class="btn sm danger" data-del-staff="${s.id}">Remove</button>`:'<span class="badge grey">You</span>'}</td></tr>`).join('')}
+    </tbody></table></div>
+  `;
+  document.getElementById('sfAdd').onclick = () => {
+    const res = LIB.addStaff({ name: document.getElementById('sfName').value, username: document.getElementById('sfUser').value,
+      password: document.getElementById('sfPw').value, role: document.getElementById('sfRole').value });
+    if(!res.ok) return alert(res.error);
+    render('Staff');
+  };
+  document.querySelectorAll('[data-del-staff]').forEach(b=>b.onclick=()=>{ LIB.removeStaff(b.dataset.delStaff); render('Staff'); });
+}
+
+/* ================= SETTINGS / BACKUP ================= */
+function renderSettings(area){
+  const s = LIB.getSettings();
+  const swatches = ["#C8102E","#8f0b20","#111111","#0b5fa5","#1a7a3c","#b45309"];
+  area.innerHTML = `
+    <h2>⚙️ Settings & Backup</h2>
+    <div class="card">
+      <h3 style="font-size:14px;">Branding</h3>
+      <div class="field"><label>School Name</label><input id="stSchool" value="${LIB.escapeAttr(s.schoolName)}"></div>
+      <div class="field"><label>Portal Title (shown in browser tab & login screens)</label><input id="stPortal" value="${LIB.escapeAttr(s.portalName)}"></div>
+      <div class="field"><label>Logo</label>
+        <div class="avatar-row">
+          ${s.logoUrl?`<img class="avatar lg" src="${LIB.escapeAttr(s.logoUrl)}" alt="">`:`<div class="avatar-fallback lg">${LIB.escapeHtml((s.schoolName||'S')[0])}</div>`}
+          <label class="btn sm outline avatar-upload">Upload Logo<input type="file" accept="image/*" id="stLogoFile"></label>
+          ${s.logoUrl?'<button class="btn sm outline" id="stLogoClear">Remove</button>':''}
+        </div>
+        <p class="hint">Or paste a logo URL instead:</p>
+        <input id="stLogo" value="${LIB.escapeAttr(s.logoUrl && s.logoUrl.startsWith('http')?s.logoUrl:'')}" placeholder="https://...">
+      </div>
+      <div class="field"><label>Accent Color</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          ${swatches.map(c=>`<button class="color-swatch ${s.accent===c?'active':''}" style="background-color:${c}" data-swatch="${c}"></button>`).join('')}
+          <input type="color" id="stColor" value="${s.accent}">
+        </div>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="stTexture" ${s.texture!==false?'checked':''} style="width:auto;display:inline-block;margin-inline-end:6px;">Show cultural texture strip (Ethiopian tibeb-inspired pattern)</label>
+      </div>
+      <div class="field"><label>Default Loan Period (days)</label><input id="stDue" type="number" value="${s.dueDays}"></div>
+      <button class="btn primary" id="stSave">Save Settings</button>
+    </div>
+
+    <div class="section-title"><h2>🔑 My Password</h2></div>
+    <div class="card">
+      <div class="grid cols-2">
+        <div class="field"><label>Current Password</label><input id="pwOld" type="password"></div>
+        <div class="field"><label>New Password (min 6 chars)</label><input id="pwNew" type="password"></div>
+      </div>
+      <button class="btn primary sm" id="pwSaveBtn">Change My Password</button>
+      <span id="pwMsg" style="font-size:12px;margin-inline-start:8px;"></span>
+    </div>
+
+    <div class="section-title"><h2>🧹 Demo Data</h2></div>
+    <div class="card">
+      <p>The system currently ships with a few <b>sample students, sample books, and a sample announcement</b> so you can test it. When you're ready to go live, click below to permanently delete all of that sample data. Your Settings (logo, colors) and Staff logins are kept.</p>
+      <button class="btn danger" id="clearDemoBtn">🗑 Clear All Demo/Sample Data</button>
+    </div>
+
+    <div class="section-title"><h2>💾 Data Backup</h2></div>
+    <div class="card">
+      <p>Download the entire database (students, books, loans, announcements) as a JSON file, or restore from a previous backup. This is your real backup — the data lives only in this browser otherwise.</p>
+      <div class="row-actions">
+        <button class="btn outline" id="expBtn">⬇ Export Backup (.json)</button>
+        <label class="btn outline" style="position:relative;overflow:hidden;">⬆ Import Backup
+          <input type="file" id="impFile" accept=".json" style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+        </label>
+      </div>
+      <div id="impMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+
+    <div class="section-title"><h2>📡 Social Channels</h2></div>
+    <div class="card">
+      <p>Mirror announcements to your school's channels for wider reach (posted manually — this just stores the links so students can find you).</p>
+      <div class="grid cols-2">
+        <div class="field"><label>Telegram channel link</label><input id="stTg" value="${LIB.escapeAttr(s.telegram)}"></div>
+        <div class="field"><label>YouTube channel link</label><input id="stYt" value="${LIB.escapeAttr(s.youtube||'')}"></div>
+      </div>
+      <button class="btn outline" id="stTgSave">Save Channels</button>
+    </div>
+  `;
+  document.querySelectorAll('[data-swatch]').forEach(sw => sw.onclick = () => { document.getElementById('stColor').value = sw.dataset.swatch; });
+  let pendingLogo = s.logoUrl;
+  const logoFileInput = document.getElementById('stLogoFile');
+  if(logoFileInput) logoFileInput.onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.fileToResizedDataURL(f, 300, (dataUrl) => { if(dataUrl){ pendingLogo = dataUrl; LIB.updateSettings({logoUrl:dataUrl}); render('Settings'); } });
+  };
+  const logoClearBtn = document.getElementById('stLogoClear');
+  if(logoClearBtn) logoClearBtn.onclick = () => { LIB.updateSettings({logoUrl:''}); render('Settings'); };
+  document.getElementById('stSave').onclick = () => {
+    const urlLogo = document.getElementById('stLogo').value.trim();
+    LIB.updateSettings({
+      schoolName: document.getElementById('stSchool').value,
+      portalName: document.getElementById('stPortal').value,
+      logoUrl: urlLogo ? urlLogo : pendingLogo,
+      accent: document.getElementById('stColor').value,
+      texture: document.getElementById('stTexture').checked,
+      dueDays: Number(document.getElementById('stDue').value) || 14
+    });
+    LIB.applyTheme();
+    alert('Settings saved');
+  };
+  document.getElementById('pwSaveBtn').onclick = () => {
+    const res = LIB.staffChangeOwnPassword(CURRENT.id, document.getElementById('pwOld').value, document.getElementById('pwNew').value);
+    const m = document.getElementById('pwMsg');
+    if(!res.ok){ m.style.color='var(--danger)'; m.textContent = res.error; return; }
+    m.style.color='var(--ok)'; m.textContent='Password updated ✓';
+    document.getElementById('pwOld').value=''; document.getElementById('pwNew').value='';
+  };
+  document.getElementById('stTgSave').onclick = () => { LIB.updateSettings({ telegram: document.getElementById('stTg').value, youtube: document.getElementById('stYt').value }); alert('Saved'); };
+  document.getElementById('clearDemoBtn').onclick = () => {
+    if(confirm('This permanently deletes all sample students, books, loans, and announcements. This cannot be undone (unless you have a backup). Continue?')){
+      LIB.clearDemoData();
+      alert('Demo data cleared. The system is now empty and ready for your real students and books.');
+      render('Settings');
+    }
+  };
+  document.getElementById('expBtn').onclick = () => LIB.exportJSON();
+  document.getElementById('impFile').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.importJSON(f, (res) => {
+      const m = document.getElementById('impMsg');
+      if(res.ok){ m.style.color='var(--ok)'; m.textContent='Restored successfully. Reloading...'; setTimeout(()=>location.reload(), 1200); }
+      else { m.style.color='var(--danger)'; m.textContent = res.error; }
+    });
+  };
+}
+
+/* ---------------- boot ---------------- */
+(function init(){
+  const staff = LIB.currentStaff();
+  if(staff) bootApp();
+})();
+</script>
+</body>
+</html>

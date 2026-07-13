@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SSSDP • ተማሪ መግቢያ</title>
+<meta name="theme-color" content="#C8102E">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a href="#mainContent" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
+
+<!-- ===================== AUTH SCREEN ===================== -->
+<div id="authScreen" class="auth-wrap">
+  <div class="auth-card">
+    <div class="tibeb-strip thin"></div>
+    <div class="auth-card-inner">
+      <div class="auth-logo">
+        <div class="logo-badge" id="logoBadge"><img src="assets/school-logo.png" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+        <div class="brand-name" id="brandNameApp">SSSDP<small id="brandSubApp">የተማሪ መግቢያ • Student Access</small></div>
+      </div>
+
+      <div class="seg" role="tablist">
+        <button id="segLogin" class="active" role="tab" aria-selected="true">ግባ (Login)</button>
+        <button id="segActivate" role="tab" aria-selected="false">መለያ ማንቃት (Activate)</button>
+      </div>
+
+      <div id="authMsg" aria-live="polite"></div>
+
+      <!-- LOGIN: only the first 4 digits of the FAN + a 4-digit PIN -->
+      <form id="loginForm">
+        <div class="field">
+          <label for="loginFan4">የFAN መጀመሪያ 4 ዲጂት</label>
+          <input id="loginFan4" inputmode="numeric" maxlength="4" placeholder="XXXX" required>
+        </div>
+        <div class="field">
+          <label for="loginPin">የይለፍ ቁጥር (4-digit PIN)</label>
+          <div class="pw-wrap">
+            <input id="loginPin" class="pin-input" type="password" inputmode="numeric" maxlength="4" required>
+            <button type="button" class="pw-toggle" data-target="loginPin" aria-label="የይለፍ ቁጥር አሳይ/ደብቅ">👁</button>
+          </div>
+        </div>
+        <button class="btn primary block" type="submit">ግባ</button>
+        <p class="helper-link">አድሚን / ላይብረሪ ነዎት? <a href="admin.html">የአድሚን መግቢያ →</a></p>
+      </form>
+
+      <!-- ACTIVATE -->
+      <form id="activateForm" class="hidden">
+        <p class="msg warn">አድሚኑ ካስመዘገበዎት በኋላ፣ የFAN መጀመሪያ 4 ዲጂት እና ሙሉ ስምዎን በማስገባት የግል 4-ዲጂት PIN ይፍጠሩ።</p>
+        <div class="field">
+          <label for="actName">ሙሉ ስም</label>
+          <input id="actName" required>
+        </div>
+        <div class="field">
+          <label for="actFan4">የFAN መጀመሪያ 4 ዲጂት</label>
+          <input id="actFan4" inputmode="numeric" maxlength="4" placeholder="XXXX" required>
+        </div>
+        <div class="field">
+          <label for="actPin">አዲስ የይለፍ ቁጥር (4-digit PIN)</label>
+          <div class="pw-wrap">
+            <input id="actPin" class="pin-input" type="password" inputmode="numeric" maxlength="4" required>
+            <button type="button" class="pw-toggle" data-target="actPin" aria-label="የይለፍ ቁጥር አሳይ/ደብቅ">👁</button>
+          </div>
+        </div>
+        <button class="btn primary block" type="submit">መለያ አንቃ</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="appShell" class="app-shell hidden">
+  <div class="topbar">
+    <div class="logo-badge" id="logoBadge2"><img src="assets/school-logo.png" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+    <div class="brand" id="brandTop">SSSDP<small id="studentNameTag"></small></div>
+    <div class="spacer"></div>
+    <button class="tb-btn" id="logoutBtn">ውጣ</button>
+  </div>
+  <div class="tibeb-strip"></div>
+
+  <main class="main" id="mainContent">
+    <div id="viewHome"></div>
+    <div class="hidden" id="viewLibrary"></div>
+    <div class="hidden" id="viewInbox"></div>
+    <div class="hidden" id="viewProfile"></div>
+  </main>
+
+  <footer class="watermark">
+    <img src="assets/developer-logo.png" alt="" style="height:16px;vertical-align:middle;margin-inline-end:5px;border-radius:3px;" onerror="this.style.display='none'">
+    © 2026 <a href="https://t.me/dagdevio" target="_blank" rel="noopener">DAG DEV IO</a> — t.me/dagdevio
+  </footer>
+
+  <nav class="bottom-nav" aria-label="ዋና ዝርዝር">
+    <button class="nav-btn active" data-view="Home"><span class="ic" aria-hidden="true">🏠</span>Home</button>
+    <button class="nav-btn" data-view="Library"><span class="ic" aria-hidden="true">📚</span>Library</button>
+    <button class="nav-btn" data-view="Inbox"><span class="ic" aria-hidden="true">🔔</span>Inbox</button>
+    <button class="nav-btn" data-view="Profile"><span class="ic" aria-hidden="true">👤</span>Profile</button>
+  </nav>
+</div>
+
+<script src="app.js"></script>
+<script>
+LIB.applyTheme();
+const s = LIB.getSettings();
+window.__logoFallback = (s.schoolName||'S')[0];
+document.getElementById('brandNameApp').firstChild.nodeValue = s.portalName ? s.portalName.split(' — ')[0] : 'SSSDP';
+document.getElementById('brandTop').firstChild.nodeValue = s.portalName ? s.portalName.split(' — ')[0] : 'SSSDP';
+document.title = (s.portalName||'SSSDP') + ' • ተማሪ መግቢያ';
+
+// Logo priority: 1) admin-uploaded logo saved in Settings (base64/URL)  2) assets/school-logo.png  3) letter fallback
+function wireLogo(img){
+  if(s.logoUrl){
+    img.src = s.logoUrl;
+    img.style.display = '';
+    img.addEventListener('error', () => { img.style.display='none'; img.parentElement.textContent = window.__logoFallback; }, { once:true });
+  } // else: local assets/school-logo.png already set via src attribute; its own onerror handles fallback
+}
+document.querySelectorAll('#logoBadge img, #logoBadge2 img').forEach(wireLogo);
+
+/* ---------------- auth screen wiring ---------------- */
+const segLogin = document.getElementById('segLogin');
+const segActivate = document.getElementById('segActivate');
+const loginForm = document.getElementById('loginForm');
+const activateForm = document.getElementById('activateForm');
+const authMsg = document.getElementById('authMsg');
+
+segLogin.onclick = () => { segLogin.classList.add('active'); segLogin.setAttribute('aria-selected','true'); segActivate.classList.remove('active'); segActivate.setAttribute('aria-selected','false'); loginForm.classList.remove('hidden'); activateForm.classList.add('hidden'); authMsg.innerHTML=''; };
+segActivate.onclick = () => { segActivate.classList.add('active'); segActivate.setAttribute('aria-selected','true'); segLogin.classList.remove('active'); segLogin.setAttribute('aria-selected','false'); activateForm.classList.remove('hidden'); loginForm.classList.add('hidden'); authMsg.innerHTML=''; };
+
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.onclick = () => {
+    const inp = document.getElementById(btn.dataset.target);
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    btn.textContent = inp.type === 'password' ? '👁' : '🙈';
+  };
+});
+
+let pendingLoginPin = null;
+
+loginForm.onsubmit = (e) => {
+  e.preventDefault();
+  const fan4 = document.getElementById('loginFan4').value;
+  const pin = document.getElementById('loginPin').value;
+  const res = LIB.studentLogin(fan4, pin);
+  if(res.needsPick){
+    pendingLoginPin = pin;
+    authMsg.innerHTML = `<div class="msg warn">ከአንድ በላይ ተማሪ ተገኝቷል፣ እባክዎ ስምዎን ይምረጡ፦</div>
+      <div class="candidate-list">${res.candidates.map(c=>`<button type="button" class="candidate-btn" data-pick="${c.id}">${LIB.escapeHtml(c.name)} — ክፍል ${LIB.escapeHtml(String(c.class||''))}${c.section?('/'+LIB.escapeHtml(String(c.section))):''}</button>`).join('')}</div>`;
+    document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+      const r2 = LIB.studentLoginConfirm(b.dataset.pick, pendingLoginPin);
+      if(!r2.ok){ authMsg.innerHTML = `<div class="msg error">${LIB.escapeHtml(r2.error)}</div>`; return; }
+      bootApp();
+    });
+    return;
+  }
+  if(!res.ok){ authMsg.innerHTML = `<div class="msg error">${LIB.escapeHtml(res.error)}</div>`; return; }
+  bootApp();
+};
+
+activateForm.onsubmit = (e) => {
+  e.preventDefault();
+  const name = document.getElementById('actName').value;
+  const fanPrefix4 = document.getElementById('actFan4').value;
+  const pin = document.getElementById('actPin').value;
+  const res = LIB.activateStudent({ fanPrefix4, name, pin });
+  if(!res.ok){ authMsg.innerHTML = `<div class="msg error">${LIB.escapeHtml(res.error)}</div>`; return; }
+  authMsg.innerHTML = `<div class="msg success">መለያዎ ነቅቷል! የFAN 4 ዲጂት እና PIN ቁጥርዎን በመጠቀም አሁን ይግቡ።</div>`;
+  segLogin.click();
+  document.getElementById('loginFan4').value = res.fanPrefix4;
+};
+
+document.getElementById('logoutBtn').onclick = () => { LIB.clearSession(); location.reload(); };
+
+/* ---------------- nav ---------------- */
+const views = { Home: document.getElementById('viewHome'), Library: document.getElementById('viewLibrary'),
+  Inbox: document.getElementById('viewInbox'), Profile: document.getElementById('viewProfile') };
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    Object.values(views).forEach(v=>v.classList.add('hidden'));
+    const name = btn.dataset.view;
+    views[name].classList.remove('hidden');
+    renderView(name);
+  };
+});
+
+function bootApp(){
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+  const student = LIB.currentStudent();
+  document.getElementById('studentNameTag').textContent = student ? `${student.name} • ክፍል ${student.class}${student.section}` : '';
+  renderView('Home');
+}
+
+function renderView(name){
+  const student = LIB.currentStudent();
+  if(!student){ LIB.clearSession(); location.reload(); return; }
+  if(name === 'Home') renderHome(student);
+  if(name === 'Library') renderLibrary(student);
+  if(name === 'Inbox') renderInbox(student);
+  if(name === 'Profile') renderProfile(student);
+}
+
+function avatarHtml(student, size){
+  const cls = size==='lg' ? ' lg' : '';
+  if(student.photo) return `<img class="avatar${cls}" src="${LIB.escapeAttr(student.photo)}" alt="">`;
+  const initial = (student.name||'?').trim()[0] || '?';
+  return `<div class="avatar-fallback${cls}">${LIB.escapeHtml(initial)}</div>`;
+}
+
+/* ---------------- HOME ---------------- */
+function renderHome(student){
+  const myReqs = LIB.myRequests(student.id).filter(r=>r.status==='borrowed');
+  const overdue = myReqs.filter(r => LIB.isOverdue(r.dueDate));
+  const anns = LIB.listAnnouncements().slice(0,3);
+
+  let html = `
+    <div class="card" style="background:linear-gradient(135deg,var(--black),#2b0d10); color:#fff; border:none;">
+      <div class="avatar-row">
+        ${avatarHtml(student)}
+        <div>
+          <div style="font-size:12.5px; opacity:.8;">እንኳን ደህና መጡ</div>
+          <h2 style="color:#fff; margin:2px 0 0;">${LIB.escapeHtml(student.name)}</h2>
+          <div style="font-size:12px; opacity:.85;">ክፍል ${LIB.escapeHtml(String(student.class))} • ክፍል ${LIB.escapeHtml(String(student.section))}</div>
+        </div>
+      </div>
+    </div>
+    <div class="stat-row" style="margin-top:14px;">
+      <div class="stat-box"><div class="n">${myReqs.length}</div><div class="l">በእጅ ያሉ መጻሕፍት</div></div>
+      <div class="stat-box"><div class="n" style="color:${overdue.length?'var(--danger)':'inherit'}">${overdue.length}</div><div class="l">ያለፈባቸው</div></div>
+    </div>`;
+
+  if(overdue.length){
+    html += `<div class="msg error" style="margin-top:14px;">⚠ ${overdue.length} መጽሐፍ(ት) የመመለሻ ቀናቸው አልፏል። እባክዎ በቅርቡ ይመልሱ።</div>`;
+  }
+
+  html += `<div class="section-title"><h2>📢 የቅርብ ጊዜ ማስታወቂያዎች</h2></div>`;
+  if(!anns.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም ማስታወቂያ የለም</div>`; }
+  anns.forEach(a => { html += announcementCardHtml(a); });
+
+  document.getElementById('viewHome').innerHTML = html;
+  wireAnnouncementCards(student);
+}
+
+function announcementCardHtml(a){
+  const roleLabel = a.postedByRole === 'director' ? 'ዳይሬክተር' : 'ላይብረሪ';
+  let media = '';
+  if(a.mediaUrl){
+    if(a.mediaType === 'video') media = `<div class="ann-media"><video src="${LIB.escapeAttr(a.mediaUrl)}" controls></video></div>`;
+    else media = `<div class="ann-media"><img src="${LIB.escapeAttr(a.mediaUrl)}" alt=""></div>`;
+  }
+  return `
+  <div class="card ann-card" data-ann="${a.id}">
+    <div class="ann-meta"><span class="who">${LIB.escapeHtml(a.postedBy)}</span><span class="badge grey">${roleLabel}</span><span>${LIB.fmtDate(a.date)}</span></div>
+    <h4 style="margin:0 0 4px;">${LIB.escapeHtml(a.title)}</h4>
+    <p>${LIB.escapeHtml(a.body)}</p>
+    ${media}
+    <div class="comments-wrap"></div>
+    <div class="comment-row">
+      <input type="text" placeholder="አስተያየት ይስጡ..." class="comment-input" data-ann="${a.id}" aria-label="አስተያየት ይስጡ">
+      <button type="button" class="btn sm primary comment-send" data-ann="${a.id}">ላክ</button>
+    </div>
+  </div>`;
+}
+
+function wireAnnouncementCards(student){
+  document.querySelectorAll('[data-ann]').forEach(card => {
+    const annId = card.dataset.ann;
+    LIB.markAnnouncementViewed(annId, student.id); // Telegram/YouTube-style view count, visible to admins only
+    const wrap = card.querySelector('.comments-wrap');
+    const comments = LIB.commentsFor('announcement', annId);
+    wrap.innerHTML = comments.map(c => {
+      const cs = LIB.getDB().students.find(s=>s.id===c.studentId);
+      return `<div class="comment"><b>${LIB.escapeHtml(cs?cs.name:'ተማሪ')}</b> <small>${LIB.fmtDate(c.date)}</small><div>${LIB.escapeHtml(c.text)}</div></div>`;
+    }).join('');
+  });
+  const submit = (annId, input) => {
+    const val = input.value.trim();
+    if(!val) return;
+    LIB.addComment({ targetType:'announcement', targetId: annId, studentId: student.id, text: val });
+    input.value='';
+    renderView(document.querySelector('.nav-btn.active').dataset.view);
+  };
+  document.querySelectorAll('.comment-input').forEach(inp => {
+    inp.onkeydown = (e) => { if(e.key === 'Enter') submit(inp.dataset.ann, inp); };
+  });
+  // The Send button was previously not wired up — this is the fix so tapping
+  // "ላክ" posts the comment the same way pressing Enter does.
+  document.querySelectorAll('.comment-send').forEach(btn => {
+    btn.onclick = () => { const inp = document.querySelector(`.comment-input[data-ann="${btn.dataset.ann}"]`); submit(btn.dataset.ann, inp); };
+  });
+}
+
+/* ---------------- LIBRARY ---------------- */
+function renderLibrary(student){
+  const el = document.getElementById('viewLibrary');
+  el.innerHTML = `
+    <h2>📚 ቤተ-መጻሕፍት</h2>
+    <div class="search-bar">
+      <input id="bkQuery" placeholder="በስም ወይም በደራሲ ይፈልጉ..." aria-label="መጽሐፍ ፍለጋ">
+      <select id="bkCat" aria-label="በዓይነት ማጣሪያ">
+        <option value="all">ሁሉም ዓይነት</option>
+        ${LIB.CATEGORIES.map(c=>`<option value="${c}">${LIB.CATEGORY_LABEL[c]}</option>`).join('')}
+      </select>
+    </div>
+    <div class="grid cols-3" id="bookGrid"></div>
+  `;
+  const runSearch = () => {
+    const q = document.getElementById('bkQuery').value;
+    const cat = document.getElementById('bkCat').value;
+    const results = LIB.searchBooks({ query:q, category:cat });
+    const grid = document.getElementById('bookGrid');
+    if(!results.length){ grid.innerHTML = `<div class="empty"><span class="ic">🔎</span>ምንም አልተገኘም</div>`; return; }
+    grid.innerHTML = results.map(b => bookCardHtml(b, student)).join('');
+    wireBookCards(student);
+  };
+  document.getElementById('bkQuery').oninput = runSearch;
+  document.getElementById('bkCat').onchange = runSearch;
+  runSearch();
+}
+
+function bookCardHtml(b, student){
+  const stats = LIB.bookStats(b);
+  const myReqs = LIB.myRequests(student.id);
+  const mine = myReqs.find(r => r.bookId === b.id && (r.status==='pending'||r.status==='borrowed'));
+  const reserved = LIB.myReservations(student.id).some(r => r.bookId === b.id);
+  let actionHtml = '';
+  if(mine){
+    actionHtml = mine.status==='pending'
+      ? `<span class="badge warn">✔ ተጠይቋል • ማጽደቅ ይጠበቃል</span>`
+      : `<span class="badge ok">በእጅዎ • መመለሻ ${LIB.fmtDate(mine.dueDate)}</span>`;
+  } else if(stats.available > 0){
+    actionHtml = `<button class="btn primary sm" data-req="${b.id}">ውሰድ (Request)</button>`;
+  } else if(reserved){
+    actionHtml = `<span class="badge grey">በወረፋ ውስጥ</span>`;
+  } else {
+    actionHtml = `<button class="btn outline sm" data-res="${b.id}">ወረፋ ግባ</button>`;
+  }
+  return `
+  <div class="book-card">
+    <div class="book-cover">${b.coverUrl?`<img src="${LIB.escapeAttr(b.coverUrl)}" alt="">`:'📕'}<span class="cat-chip">${LIB.CATEGORY_LABEL[b.category]||b.category}</span></div>
+    <div class="book-body">
+      <h4>${LIB.escapeHtml(b.title)}</h4>
+      <div class="author">${LIB.escapeHtml(b.author||'')}</div>
+      <div class="stars" aria-label="ደረጃ ${b.quality} ከ 5">${LIB.stars(b.quality)}</div>
+      <div style="font-size:11.5px;color:var(--grey)">${LIB.escapeHtml(b.condition||'')}</div>
+      <div class="avail-row"><span>ይገኛል: ${stats.available}/${stats.total}</span>${actionHtml}</div>
+    </div>
+  </div>`;
+}
+
+function wireBookCards(student){
+  document.querySelectorAll('[data-req]').forEach(btn => {
+    btn.onclick = () => {
+      const res = LIB.requestBook(student.id, btn.dataset.req);
+      if(!res.ok && !res.canReserve) alert(res.error);
+      renderLibrary(student);
+    };
+  });
+  document.querySelectorAll('[data-res]').forEach(btn => {
+    btn.onclick = () => {
+      const res = LIB.reserveBook(student.id, btn.dataset.res);
+      if(!res.ok) alert(res.error);
+      renderLibrary(student);
+    };
+  });
+}
+
+/* ---------------- INBOX ---------------- */
+function renderInbox(student){
+  const anns = LIB.listAnnouncements();
+  let html = `<h2>🔔 Inbox</h2>`;
+  if(!anns.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም መልዕክት የለም</div>`; }
+  anns.forEach(a => { html += announcementCardHtml(a); });
+  document.getElementById('viewInbox').innerHTML = html;
+  wireAnnouncementCards(student);
+}
+
+/* ---------------- PROFILE ---------------- */
+function renderProfile(student){
+  const myReqs = LIB.myRequests(student.id).sort((a,b)=> new Date(b.requestedAt)-new Date(a.requestedAt));
+  const db = LIB.getDB();
+  let html = `
+    <h2>👤 መገለጫ</h2>
+    <div class="card">
+      <div class="avatar-row" style="margin-bottom:12px;">
+        ${avatarHtml(student, 'lg')}
+        <div>
+          <div style="font-weight:800;font-size:15px;">${LIB.escapeHtml(student.name)}</div>
+          <div style="font-size:12px;color:var(--grey);">ፎቶ በአድሚን ብቻ ይስተካከላል</div>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div><div class="field"><label>ክፍል / ክፍለ ክፍል</label><div>${LIB.escapeHtml(String(student.class))} / ${LIB.escapeHtml(String(student.section))}</div></div></div>
+        <div><div class="field"><label>እድሜ</label><div>${student.age||'—'}</div></div></div>
+        <div style="grid-column:1/-1;"><div class="field"><label>FAN</label><div>${LIB.escapeHtml(student.fan)}</div></div></div>
+      </div>
+    </div>
+
+    <div class="section-title"><h2>🔑 PIN ቀይር</h2></div>
+    <div class="card">
+      <div class="field"><label for="newPin">አዲስ 4-ዲጂት PIN</label><input id="newPin" class="pin-input" type="password" inputmode="numeric" maxlength="4"></div>
+      <button class="btn primary sm" id="savePinBtn">አስቀምጥ</button>
+      <span id="pinMsg" style="font-size:12px;margin-inline-start:8px;"></span>
+    </div>
+
+    <div class="section-title"><h2>📖 የውሰት ታሪክ</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>መጽሐፍ</th><th>ሁኔታ</th><th>የተጠየቀበት</th><th>መመለሻ ቀን</th></tr></thead><tbody>
+      ${myReqs.length ? myReqs.map(r => {
+        const book = db.books.find(b=>b.id===r.bookId);
+        const overdue = r.status==='borrowed' && LIB.isOverdue(r.dueDate);
+        const statusBadge = { pending:'<span class="badge warn">በመጠባበቅ</span>', borrowed: overdue? '<span class="badge danger">ዘግይቷል</span>':'<span class="badge ok">በእጅ</span>',
+          returned:'<span class="badge grey">ተመልሷል</span>', rejected:'<span class="badge danger">ተቀባይነት አላገኘም</span>' }[r.status];
+        return `<tr class="${overdue?'overdue-row':''}"><td>${LIB.escapeHtml(book?book.title:'—')}</td><td>${statusBadge}</td><td>${LIB.fmtDate(r.requestedAt)}</td><td>${r.dueDate?LIB.fmtDate(r.dueDate):'—'}</td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:20px;">ምንም ታሪክ የለም</td></tr>`}
+      </tbody></table>
+    </div>
+  `;
+  document.getElementById('viewProfile').innerHTML = html;
+  document.getElementById('savePinBtn').onclick = () => {
+    const pin = document.getElementById('newPin').value;
+    const msg = document.getElementById('pinMsg');
+    if(!/^\d{4}$/.test(pin)){ msg.textContent = 'ልክ 4 ዲጂት ያስፈልጋል'; msg.style.color='var(--danger)'; return; }
+    LIB.adminSetStudentPin(student.id, pin); // student editing own PIN uses the same setter
+    msg.textContent = 'ተቀምጧል ✓'; msg.style.color='var(--ok)';
+    document.getElementById('newPin').value='';
+  };
+}
+
+/* ---------------- boot ---------------- */
+(function init(){
+  const student = LIB.currentStudent();
+  if(student) bootApp();
+})();
+</script>
+</body>
+</html>
