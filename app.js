@@ -89,19 +89,48 @@ const LIB = (() => {
   let _fsDocRef = null;
   let _cloudEnabled = false;
 
+  function normalizeDB(db){
+    if(!db) return db;
+    db.settings = db.settings || {};
+    db.staff = db.staff || [];
+    db.students = db.students || [];
+    db.books = db.books || [];
+    db.requests = db.requests || [];
+    db.reservations = db.reservations || [];
+    db.announcements = db.announcements || [];
+    db.comments = db.comments || [];
+    return db;
+  }
+
   function loadLocalCache(){
-    try { const raw = localStorage.getItem(DB_KEY); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+    try { const raw = localStorage.getItem(DB_KEY); return raw ? normalizeDB(JSON.parse(raw)) : null; } catch(e){ return null; }
   }
   function saveLocalCache(db){ try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){} }
 
   function loadDB(){ return _dbCache || loadLocalCache() || seedDB(); }
   function getDB(){ return loadDB(); }
+  // Firestore hard-caps a single document at ~1MiB. This whole app syncs the entire
+  // DB (including base64 book covers / student photos) as ONE document, so once
+  // enough images pile up a save can silently fail past that ceiling. We warn well
+  // before the real limit so it shows up as a visible banner, not a mystery "my
+  // request never reached admin" bug.
+  const FIRESTORE_DOC_SOFT_LIMIT = 900000;
   function saveDB(db){
     _dbCache = db;
     saveLocalCache(db); // keep the local mirror fresh for instant next-load
     if(_cloudEnabled && _fsDocRef){
-      _fsDocRef.set({ json: JSON.stringify(db), updatedAt: Date.now() })
-        .catch(err => console.error("SSSDP: cloud save failed (offline? check firebase-config.js)", err));
+      const json = JSON.stringify(db);
+      if(json.length > FIRESTORE_DOC_SOFT_LIMIT){
+        const msg = "SSSDP: shared database is " + Math.round(json.length/1024) + "KB — close to Firestore's 1MB per-document limit. New changes (like a book request) may silently fail to reach other devices. Remove/compress some book cover or student photo images.";
+        console.error(msg);
+        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+      }
+      _fsDocRef.set({ json, updatedAt: Date.now() })
+        .catch(err => {
+          const msg = "SSSDP: cloud save failed — " + (err && err.message ? err.message : err);
+          console.error(msg, err);
+          window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+        });
     }
   }
   function mutate(fn){ const db = loadDB(); fn(db); saveDB(db); return db; }
@@ -130,8 +159,8 @@ const LIB = (() => {
           try { remote = JSON.parse(snap.data().json); } catch(e){ remote = null; }
         }
         if(remote){
-          _dbCache = remote;
-          saveLocalCache(remote);
+          _dbCache = normalizeDB(remote);
+          saveLocalCache(_dbCache);
         } else {
           // First-ever run for this school: seed the shared cloud DB once.
           const seeded = _dbCache || loadLocalCache() || seedDB();

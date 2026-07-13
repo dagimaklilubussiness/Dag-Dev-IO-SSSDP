@@ -88,6 +88,7 @@
     <button class="tb-btn" id="logoutBtn">ውጣ</button>
   </div>
   <div class="tibeb-strip"></div>
+  <div id="syncErrorBanner" style="display:none;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;padding:10px 14px;margin:10px;border-radius:8px;font-size:13px;"></div>
 
   <main class="main" id="mainContent">
     <div id="viewHome"></div>
@@ -114,6 +115,15 @@
 <script src="firebase-config.js"></script>
 <script src="app.js"></script>
 <script>
+// Shows any cloud-sync failure (offline, Firestore rules, or the shared DB
+// doc getting too large) as a visible banner so a student's request/comment
+// silently not reaching admin is diagnosable instead of a mystery.
+window.SSSDP_ON_SYNC_ERROR = function(msg){
+  const el = document.getElementById('syncErrorBanner');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent = '⚠️ ' + msg;
+};
 LIB.applyTheme();
 const s = LIB.getSettings();
 window.__logoFallback = (s.schoolName||'S')[0];

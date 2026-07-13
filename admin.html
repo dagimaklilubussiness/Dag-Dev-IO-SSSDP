@@ -68,7 +68,10 @@
     <div class="side-role" id="roleTag"></div>
   </div>
 
-  <div class="admin-main" id="mainArea"></div>
+  <div class="admin-main">
+    <div id="syncErrorBanner" style="display:none;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;"></div>
+    <div id="mainArea"></div>
+  </div>
 </div>
 <footer class="watermark" id="appShellFooter" style="display:none;">
   <img src="assets/developer-logo.png" alt="" style="height:16px;vertical-align:middle;margin-inline-end:5px;border-radius:3px;" onerror="this.style.display='none'">
@@ -769,6 +772,15 @@ window.SSSDP_REFRESH = function(){
     const activeBtn = document.querySelector('.side-link[data-view].active');
     render(activeBtn ? activeBtn.dataset.view : 'Dashboard');
   }
+};
+// Shows any cloud-sync failure (e.g. offline, Firestore rules, or the shared
+// DB doc getting too large) as a visible banner instead of a silent console log —
+// so "a student's request never showed up" is diagnosable instead of a mystery.
+window.SSSDP_ON_SYNC_ERROR = function(msg){
+  const el = document.getElementById('syncErrorBanner');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent = '⚠️ ' + msg;
 };
 (function init(){
   LIB.ready(() => {
