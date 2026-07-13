@@ -1,5 +1,5 @@
 /* ==============================================================
-   SSSDP — Firebase configuration
+   SSSDP — Firebase configuration (Fixed)
 ============================================================== */
 
 window.FIREBASE_CONFIG = {
