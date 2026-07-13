@@ -44,6 +44,17 @@ const LIB = (() => {
     return qTokens.every(tok => t.includes(tok));
   }
 
+  /* ---------------- generic file helper (no resize — for any attachment) ---------------- */
+  // Used for announcement attachments that aren't images (PDFs, docs, etc.) —
+  // reads the raw file as a base64 data URL so it can be stored and later
+  // offered to students as a downloadable link.
+  function fileToDataURL(file, cb){
+    const reader = new FileReader();
+    reader.onload = (e) => cb(e.target.result);
+    reader.onerror = () => cb(null);
+    reader.readAsDataURL(file);
+  }
+
   /* ---------------- image helper (resize to data URL) ---------------- */
   // Used for book covers, student photos, and the school/admin logo upload —
   // keeps localStorage small by capping the longest side.
@@ -67,15 +78,78 @@ const LIB = (() => {
     reader.readAsDataURL(file);
   }
 
-  /* ---------------- DB ---------------- */
-  function loadDB(){
-    let raw = localStorage.getItem(DB_KEY);
-    if(!raw){ const seeded = seedDB(); saveDB(seeded); return seeded; }
-    try { return JSON.parse(raw); } catch(e){ const seeded = seedDB(); saveDB(seeded); return seeded; }
+  /* ---------------- DB (cloud-synced via Firestore, localStorage = instant-load cache only) ----------------
+     IMPORTANT: localStorage is per-browser/per-device and was the ROOT CAUSE of "activation on one
+     device isn't visible on another device / to admin". Real data now lives in Firestore (shared,
+     one database for every device). localStorage is kept only as a fast local mirror so the page can
+     render instantly on repeat visits before the network round-trip finishes. See firebase-config.js. */
+  let _dbCache = null;
+  let _ready = false;
+  let _readyQueue = [];
+  let _fsDocRef = null;
+  let _cloudEnabled = false;
+
+  function loadLocalCache(){
+    try { const raw = localStorage.getItem(DB_KEY); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
   }
-  function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+  function saveLocalCache(db){ try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e){} }
+
+  function loadDB(){ return _dbCache || loadLocalCache() || seedDB(); }
   function getDB(){ return loadDB(); }
+  function saveDB(db){
+    _dbCache = db;
+    saveLocalCache(db); // keep the local mirror fresh for instant next-load
+    if(_cloudEnabled && _fsDocRef){
+      _fsDocRef.set({ json: JSON.stringify(db), updatedAt: Date.now() })
+        .catch(err => console.error("SSSDP: cloud save failed (offline? check firebase-config.js)", err));
+    }
+  }
   function mutate(fn){ const db = loadDB(); fn(db); saveDB(db); return db; }
+
+  // Call cb once the initial cloud sync has completed (or immediately if running
+  // without cloud config). Pages must wait for this before reading LIB.currentStudent()/
+  // LIB.currentStaff() at boot, since the real DB may still be loading from the network.
+  function ready(cb){ if(_ready) cb(); else _readyQueue.push(cb); }
+  function flushReady(){ const q = _readyQueue; _readyQueue = []; q.forEach(cb => { try{ cb(); }catch(e){ console.error(e); } }); }
+
+  function initCloud(){
+    if(!window.FIREBASE_CONFIG || !window.firebase){
+      // No firebase-config.js / SDK found — falls back to old device-only localStorage behavior.
+      console.warn("SSSDP: running WITHOUT cloud sync — set up firebase-config.js so student accounts work across devices.");
+      _ready = true; flushReady();
+      return;
+    }
+    try{
+      firebase.initializeApp(window.FIREBASE_CONFIG);
+      const fs = firebase.firestore();
+      _fsDocRef = fs.collection("sssdp").doc("main");
+      _cloudEnabled = true;
+      _fsDocRef.onSnapshot(snap => {
+        let remote = null;
+        if(snap.exists && snap.data() && snap.data().json){
+          try { remote = JSON.parse(snap.data().json); } catch(e){ remote = null; }
+        }
+        if(remote){
+          _dbCache = remote;
+          saveLocalCache(remote);
+        } else {
+          // First-ever run for this school: seed the shared cloud DB once.
+          const seeded = _dbCache || loadLocalCache() || seedDB();
+          _dbCache = seeded;
+          _fsDocRef.set({ json: JSON.stringify(seeded), updatedAt: Date.now() }).catch(()=>{});
+        }
+        if(!_ready){ _ready = true; flushReady(); }
+        else { window.SSSDP_REFRESH && window.SSSDP_REFRESH(); } // live update from another device
+      }, err => {
+        console.error("SSSDP: cloud sync error — check firebase-config.js and Firestore security rules", err);
+        if(!_ready){ _dbCache = loadLocalCache() || seedDB(); _ready = true; flushReady(); }
+      });
+    } catch(e){
+      console.error("SSSDP: cloud init failed", e);
+      _ready = true; flushReady();
+    }
+  }
+  initCloud();
 
   function makeCopies(n){ return Array.from({length:Math.max(0,Number(n)||0)}, () => ({ id: uid("cp_"), status: "available" })); }
 
@@ -246,6 +320,24 @@ const LIB = (() => {
     if(!query) return db.students;
     return db.students.filter(s => fuzzyMatch(query, s.name) || (s.fan||"").includes(digitsOnly(query)));
   }
+  // Full removal ("withdraw") of a student record: releases any copies they were
+  // holding back to 'available', then deletes the student plus their requests,
+  // reservations, and comments so no orphaned data is left behind.
+  function removeStudent(id){
+    mutate(db => {
+      db.requests.forEach(r => {
+        if(r.studentId === id && (r.status === 'pending' || r.status === 'borrowed')){
+          const b = db.books.find(x => x.id === r.bookId);
+          const c = b && b.copies.find(x => x.id === r.copyId);
+          if(c) c.status = 'available';
+        }
+      });
+      db.students = db.students.filter(s => s.id !== id);
+      db.requests = db.requests.filter(r => r.studentId !== id);
+      db.reservations = db.reservations.filter(r => r.studentId !== id);
+      db.comments = db.comments.filter(c => c.studentId !== id);
+    });
+  }
 
   /* ---------------- staff management (director only) ---------------- */
   function addStaff({username, password, role, name}){
@@ -405,8 +497,8 @@ const LIB = (() => {
   function allBorrowed(){ return getDB().requests.filter(r => r.status === "borrowed"); }
 
   /* ---------------- announcements (with view tracking) ---------------- */
-  function postAnnouncement({title, body, mediaUrl, mediaType, postedBy, postedByRole}){
-    const rec = { id: uid("an_"), title, body, mediaUrl:mediaUrl||"", mediaType:mediaType||"",
+  function postAnnouncement({title, body, mediaUrl, mediaType, mediaName, postedBy, postedByRole}){
+    const rec = { id: uid("an_"), title, body, mediaUrl:mediaUrl||"", mediaType:mediaType||"", mediaName:mediaName||"",
       postedBy, postedByRole, date: todayISO(), views: [] };
     mutate(db => db.announcements.unshift(rec));
     return rec;
@@ -475,11 +567,11 @@ const LIB = (() => {
   return {
     CATEGORIES, CATEGORY_LABEL, COPY_STATUS_LABEL, DEFAULT_DUE_DAYS,
     uid, todayISO, addDays, fmtDate, fmtDateTime, isOverdue, daysLeft, escapeHtml, escapeAttr, digitsOnly, stars, fuzzyMatch,
-    fileToResizedDataURL,
-    getDB, mutate, getSettings, updateSettings, applyTheme,
+    fileToResizedDataURL, fileToDataURL,
+    getDB, mutate, ready, getSettings, updateSettings, applyTheme,
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
-    adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents,
+    adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
     addStaff, removeStaff, staffChangeOwnPassword, clearDemoData,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,

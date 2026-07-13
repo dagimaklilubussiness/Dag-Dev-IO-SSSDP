@@ -11,8 +11,18 @@
 <body>
 <a href="#mainArea" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
 
+<!-- ===================== CLOUD LOADING SCREEN ===================== -->
+<div id="cloudLoading" class="auth-wrap">
+  <div class="auth-card">
+    <div class="tibeb-strip thin"></div>
+    <div class="auth-card-inner" style="text-align:center;padding:40px 20px;">
+      <div style="font-size:14px;color:var(--grey);">እየተጫነ ነው... / Loading...</div>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== AUTH SCREEN ===================== -->
-<div id="authScreen" class="auth-wrap">
+<div id="authScreen" class="auth-wrap hidden">
   <div class="auth-card">
     <div class="tibeb-strip thin"></div>
     <div class="auth-card-inner">
@@ -67,6 +77,9 @@
 
 <div id="modalRoot"></div>
 
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
 <script>
 LIB.applyTheme();
@@ -183,16 +196,24 @@ function renderStudents(area){
     <h2>🎓 Students</h2>
     <div class="search-bar">
       <input id="stuSearch" placeholder="Search by any part of the name, or FAN..." aria-label="Search students">
+      <select id="stuClassFilter" aria-label="Filter by class"><option value="all">ሁሉም ክፍል / All classes</option></select>
       <button class="btn primary" id="addStuBtn">+ Register Student</button>
     </div>
     <div class="table-wrap card"><table><thead>
       <tr><th></th><th>Name</th><th>Class</th><th>FAN</th><th>Status</th><th>In Hand</th><th></th></tr>
     </thead><tbody id="stuTbody"></tbody></table></div>
   `;
+  const classSel = document.getElementById('stuClassFilter');
   const draw = () => {
     const q = document.getElementById('stuSearch').value;
-    const list = LIB.searchStudents(q);
     const db = LIB.getDB();
+    const classes = Array.from(new Set(db.students.map(s=>String(s.class||'').trim()).filter(Boolean)))
+      .sort((a,b)=> a.localeCompare(b, undefined, {numeric:true}));
+    const curSel = classSel.value || 'all';
+    classSel.innerHTML = `<option value="all">ሁሉም ክፍል / All classes</option>` +
+      classes.map(c=>`<option value="${LIB.escapeAttr(c)}" ${c===curSel?'selected':''}>Class ${LIB.escapeHtml(c)}</option>`).join('');
+    let list = LIB.searchStudents(q);
+    if(classSel.value !== 'all') list = list.filter(s => String(s.class||'').trim() === classSel.value);
     document.getElementById('stuTbody').innerHTML = list.map(s => {
       const inHand = db.requests.filter(r=>r.studentId===s.id && r.status==='borrowed').length;
       return `<tr>
@@ -212,6 +233,7 @@ function renderStudents(area){
     document.querySelectorAll('[data-reset-stu]').forEach(b=>b.onclick=()=>resetPinModal(b.dataset.resetStu));
   };
   document.getElementById('stuSearch').oninput = draw;
+  classSel.onchange = draw;
   document.getElementById('addStuBtn').onclick = addStudentModal;
   draw();
 }
@@ -260,17 +282,47 @@ function viewStudentModal(id){
         </label>
         ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}
       </div>
-      <p style="font-size:13px;color:var(--grey);">Class ${LIB.escapeHtml(String(s.class||''))}/${LIB.escapeHtml(String(s.section||''))} • Age ${s.age||'—'}</p>
-      <div class="field"><label>FAN</label><div>${LIB.escapeHtml(s.fan)}</div></div>
+      <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
+        <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}"></div>
+      </div>
+      <div class="field"><label>Age</label><input id="stuAge" type="number" value="${s.age||''}"></div>
+      <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric"></div>
       <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
+      <div id="stuEditErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="field"><label>Borrow history</label>
         <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
           const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
           return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
         }).join('<br>') : 'No history'}</div>
       </div>
-      <div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>
+      <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn danger" id="stuRemoveBtn">🗑 Withdraw / Remove Student</button>
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="stuSaveBtn">Save Changes</button>
+      </div>
     </div>`);
+  document.getElementById('stuSaveBtn').onclick = () => {
+    const errBox = document.getElementById('stuEditErr');
+    const name = document.getElementById('stuName').value.trim();
+    if(!name){ errBox.textContent = 'ሙሉ ስም ያስፈልጋል'; return; }
+    const newFan = LIB.digitsOnly(document.getElementById('stuFan').value);
+    if(newFan.length !== 16){ errBox.textContent = 'FAN 16 ዲጂት መሆን አለበት'; return; }
+    const db = LIB.getDB();
+    if(newFan !== s.fan && db.students.some(x=>x.fan===newFan)){ errBox.textContent = 'ይህ FAN ቀድሞ ተመዝግቧል'; return; }
+    LIB.adminEditStudent(id, {
+      name, class: document.getElementById('stuClass').value, section: document.getElementById('stuSection').value,
+      age: Number(document.getElementById('stuAge').value)||null, fan: newFan
+    });
+    closeModal(); render('Students');
+  };
+  document.getElementById('stuRemoveBtn').onclick = () => {
+    if(confirm(`"${s.name}"ን ማስወገድ ይፈልጋሉ? ይህ የተማሪውን መለያ፣ PIN፣ የውሰት ታሪክ፣ አስተያየቶች እና ወረፋዎችን ሙሉ በሙሉ ይሰርዛል። ይህን መተው አይቻልም።\n\nRemove ${s.name}? This permanently deletes their account, PIN, borrow history, comments, and reservations.`)){
+      LIB.removeStudent(id);
+      closeModal(); render('Students');
+    }
+  };
   document.getElementById('stuPhotoInput').onchange = (e) => {
     const f = e.target.files[0]; if(!f) return;
     LIB.fileToResizedDataURL(f, 300, (dataUrl) => {
@@ -287,13 +339,21 @@ function resetPinModal(id){
   openModal(`
     <div class="modal-box">
       <h3>Reset Student PIN</h3>
-      <div class="field"><label>New 4-digit PIN</label><input id="rpPin" class="pin-input" inputmode="numeric" maxlength="4"></div>
+      <div class="field"><label>New 4-digit PIN</label>
+        <div style="display:flex;gap:8px;">
+          <input id="rpPin" class="pin-input" inputmode="numeric" maxlength="4" style="flex:1;">
+          <button type="button" class="btn sm outline" id="rpGen">🎲 Generate</button>
+        </div>
+      </div>
       <div id="rpErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
         <button class="btn outline" onclick="closeModal()">Cancel</button>
         <button class="btn primary" id="rpSave">Save</button>
       </div>
     </div>`);
+  document.getElementById('rpGen').onclick = () => {
+    document.getElementById('rpPin').value = String(Math.floor(1000 + Math.random()*9000));
+  };
   document.getElementById('rpSave').onclick = () => {
     const pin = document.getElementById('rpPin').value;
     const res = LIB.adminSetStudentPin(id, pin);
@@ -506,10 +566,11 @@ function renderAnnouncements(area){
     <div class="card">
       <div class="field"><label>Title</label><input id="anTitle"></div>
       <div class="field"><label>Message</label><textarea id="anBody" rows="3"></textarea></div>
-      <div class="grid cols-2">
-        <div class="field"><label>Media URL (image/video, optional)</label><input id="anMedia"></div>
-        <div class="field"><label>Media Type</label><select id="anMediaType"><option value="">None</option><option value="image">Image</option><option value="video">Video</option></select></div>
+      <div class="field"><label>Attach Photo / Video / File (uploads directly, like Telegram)</label>
+        <input type="file" id="anFile">
+        <div id="anFileMsg" style="font-size:11.5px;color:var(--grey);margin-top:4px;"></div>
       </div>
+      <div class="field"><label>…or paste a Media URL instead (optional, used only if no file is attached)</label><input id="anMedia" placeholder="https://..."></div>
       <button class="btn primary" id="anPost">Post Announcement</button>
       <p style="font-size:11.5px;color:var(--grey);margin-top:8px;">Posts show as coming from you (${LIB.escapeHtml(CURRENT.name)}) and are labeled Director or Library Staff, so students can tell who posted what.</p>
     </div>
@@ -522,15 +583,32 @@ function renderAnnouncements(area){
         <span class="views badge grey" title="Like Telegram/YouTube view counts">👁 ${a.views?a.views.length:0} views</span></div>
       <h4 style="margin:0 0 4px;">${LIB.escapeHtml(a.title)}</h4>
       <p>${LIB.escapeHtml(a.body)}</p>
+      ${a.mediaUrl ? `<div class="badge grey" style="margin-bottom:8px;">📎 ${a.mediaType==='image'?'Photo':a.mediaType==='video'?'Video':'File'} attached${a.mediaName?': '+LIB.escapeHtml(a.mediaName):''}</div>` : ''}
       <button class="btn sm danger" data-del-an="${a.id}">Delete</button>
     </div>`).join('') || `<div class="empty">No announcements yet</div>`;
   document.querySelectorAll('[data-del-an]').forEach(b=>b.onclick=()=>{ LIB.removeAnnouncement(b.dataset.delAn); render('Announcements'); });
+  let pendingMedia = { url:'', type:'', name:'' };
+  document.getElementById('anFile').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    const msg = document.getElementById('anFileMsg');
+    msg.textContent = 'Uploading...';
+    const isImg = f.type.startsWith('image/');
+    const isVid = f.type.startsWith('video/');
+    const done = (dataUrl) => {
+      if(!dataUrl){ msg.textContent = 'Could not read file'; return; }
+      pendingMedia = { url: dataUrl, type: isImg?'image':(isVid?'video':'file'), name: f.name };
+      msg.textContent = `✓ Attached: ${f.name}`;
+    };
+    if(isImg) LIB.fileToResizedDataURL(f, 1000, done); else LIB.fileToDataURL(f, done);
+  };
   document.getElementById('anPost').onclick = () => {
     const title = document.getElementById('anTitle').value.trim();
     const body = document.getElementById('anBody').value.trim();
     if(!title || !body) return alert('Title and message required');
-    LIB.postAnnouncement({ title, body, mediaUrl: document.getElementById('anMedia').value,
-      mediaType: document.getElementById('anMediaType').value, postedBy: CURRENT.name, postedByRole: CURRENT.role });
+    const urlVal = document.getElementById('anMedia').value.trim();
+    const media = pendingMedia.url ? pendingMedia : (urlVal ? { url:urlVal, type:'image', name:'' } : { url:'', type:'', name:'' });
+    LIB.postAnnouncement({ title, body, mediaUrl: media.url, mediaType: media.type, mediaName: media.name,
+      postedBy: CURRENT.name, postedByRole: CURRENT.role });
     render('Announcements');
   };
 }
@@ -683,9 +761,22 @@ function renderSettings(area){
 }
 
 /* ---------------- boot ---------------- */
+// Called automatically whenever the shared cloud DB changes from ANY device
+// (e.g. a student self-activates, or another staff member approves a request)
+// so this admin tab stays in sync without a manual refresh.
+window.SSSDP_REFRESH = function(){
+  if(!document.getElementById('appShell').classList.contains('hidden')){
+    const activeBtn = document.querySelector('.side-link[data-view].active');
+    render(activeBtn ? activeBtn.dataset.view : 'Dashboard');
+  }
+};
 (function init(){
-  const staff = LIB.currentStaff();
-  if(staff) bootApp();
+  LIB.ready(() => {
+    document.getElementById('cloudLoading').classList.add('hidden');
+    document.getElementById('authScreen').classList.remove('hidden');
+    const staff = LIB.currentStaff();
+    if(staff) bootApp();
+  });
 })();
 </script>
 </body>

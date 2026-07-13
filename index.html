@@ -11,8 +11,18 @@
 <body>
 <a href="#mainContent" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
 
+<!-- ===================== CLOUD LOADING SCREEN ===================== -->
+<div id="cloudLoading" class="auth-wrap">
+  <div class="auth-card">
+    <div class="tibeb-strip thin"></div>
+    <div class="auth-card-inner" style="text-align:center;padding:40px 20px;">
+      <div style="font-size:14px;color:var(--grey);">እየተጫነ ነው... / Loading...</div>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== AUTH SCREEN ===================== -->
-<div id="authScreen" class="auth-wrap">
+<div id="authScreen" class="auth-wrap hidden">
   <div class="auth-card">
     <div class="tibeb-strip thin"></div>
     <div class="auth-card-inner">
@@ -99,6 +109,9 @@
   </nav>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
 <script>
 LIB.applyTheme();
@@ -249,7 +262,8 @@ function announcementCardHtml(a){
   let media = '';
   if(a.mediaUrl){
     if(a.mediaType === 'video') media = `<div class="ann-media"><video src="${LIB.escapeAttr(a.mediaUrl)}" controls></video></div>`;
-    else media = `<div class="ann-media"><img src="${LIB.escapeAttr(a.mediaUrl)}" alt=""></div>`;
+    else if(a.mediaType === 'image') media = `<div class="ann-media"><img src="${LIB.escapeAttr(a.mediaUrl)}" alt=""></div>`;
+    else media = `<div class="ann-media"><a class="btn sm outline" href="${LIB.escapeAttr(a.mediaUrl)}" download="${LIB.escapeAttr(a.mediaName||'file')}">⬇ ${LIB.escapeHtml(a.mediaName||'ፋይል አውርድ / Download file')}</a></div>`;
   }
   return `
   <div class="card ann-card" data-ann="${a.id}">
@@ -431,9 +445,22 @@ function renderProfile(student){
 }
 
 /* ---------------- boot ---------------- */
+// Called automatically whenever the shared cloud DB changes from ANY device
+// (e.g. a student self-activates on their phone) so this tab stays in sync
+// without needing a manual refresh.
+window.SSSDP_REFRESH = function(){
+  if(!document.getElementById('appShell').classList.contains('hidden')){
+    const activeBtn = document.querySelector('.nav-btn.active');
+    renderView(activeBtn ? activeBtn.dataset.view : 'Home');
+  }
+};
 (function init(){
-  const student = LIB.currentStudent();
-  if(student) bootApp();
+  LIB.ready(() => {
+    document.getElementById('cloudLoading').classList.add('hidden');
+    document.getElementById('authScreen').classList.remove('hidden');
+    const student = LIB.currentStudent();
+    if(student) bootApp();
+  });
 })();
 </script>
 </body>
