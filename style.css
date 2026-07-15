@@ -77,6 +77,23 @@ input,select,textarea{font-family:inherit}
 .tibeb-strip.thin{ height:6px; }
 html.texture-off .tibeb-strip{ display:none; }
 
+/* ---------- Small developer credit line (top of every page) ---------- */
+.dev-credit{
+  text-align:center; font-size:10px; font-weight:600; letter-spacing:.02em;
+  color:var(--grey); background:var(--off); padding:4px 8px;
+  border-bottom:1px solid var(--line);
+}
+
+/* ---------- Cloud sync status dot ---------- */
+.cloud-dot{
+  width:9px; height:9px; border-radius:50%; flex:none;
+  background: #8a8a8a; box-shadow:0 0 0 3px rgba(255,255,255,.08);
+  transition: background .2s;
+}
+.cloud-dot.online{ background: var(--green); box-shadow:0 0 0 3px rgba(26,122,60,.18); }
+.cloud-dot.offline{ background: var(--danger); box-shadow:0 0 0 3px rgba(179,18,31,.18); animation: cloudPulse 1.4s ease-in-out infinite; }
+@keyframes cloudPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.45; } }
+
 /* ---------- Layout shell ---------- */
 .app-shell{ min-height:100vh; display:flex; flex-direction:column;}
 .topbar{

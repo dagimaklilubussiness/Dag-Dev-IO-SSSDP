@@ -10,6 +10,7 @@
 </head>
 <body>
 <a href="#mainContent" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
+<div class="dev-credit">this app is developed by Dagim Aklilu &amp; Dawit Werku</div>
 
 <!-- ===================== CLOUD LOADING SCREEN ===================== -->
 <div id="cloudLoading" class="auth-wrap">
@@ -85,6 +86,7 @@
     <div class="logo-badge" id="logoBadge2"><img src="assets/school-logo.png" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
     <div class="brand" id="brandTop">SSSDP<small id="studentNameTag"></small></div>
     <div class="spacer"></div>
+    <span class="cloud-dot" id="cloudDot" title="የደመና ግንኙነት ሁኔታ / Cloud sync status"></span>
     <button class="tb-btn" id="logoutBtn">ውጣ</button>
   </div>
   <div class="tibeb-strip"></div>
@@ -123,6 +125,16 @@ window.SSSDP_ON_SYNC_ERROR = function(msg){
   if(!el) return;
   el.style.display = 'block';
   el.textContent = '⚠️ ' + msg;
+};
+// Small always-visible dot in the topbar so a student/admin can tell at a glance
+// whether they're actually live on the shared cloud DB right now — instead of
+// finding out only when a request "goes missing".
+window.SSSDP_ON_CLOUD_STATUS = function(connected){
+  const dot = document.getElementById('cloudDot');
+  if(!dot) return;
+  dot.classList.toggle('online', !!connected);
+  dot.classList.toggle('offline', !connected);
+  dot.title = connected ? 'የደመና ግንኙነት ንቁ ነው / Synced live' : 'ከደመና ጋር አልተገናኘም — ለውጦች ላይዘምኑ ይችላሉ / Not synced — changes may not reach the admin';
 };
 LIB.applyTheme();
 const s = LIB.getSettings();
@@ -281,39 +293,16 @@ function announcementCardHtml(a){
     <h4 style="margin:0 0 4px;">${LIB.escapeHtml(a.title)}</h4>
     <p>${LIB.escapeHtml(a.body)}</p>
     ${media}
-    <div class="comments-wrap"></div>
-    <div class="comment-row">
-      <input type="text" placeholder="አስተያየት ይስጡ..." class="comment-input" data-ann="${a.id}" aria-label="አስተያየት ይስጡ">
-      <button type="button" class="btn sm primary comment-send" data-ann="${a.id}">ላክ</button>
-    </div>
   </div>`;
 }
 
+// NOTE: the student-facing comment box (input + list) was removed per request —
+// students can no longer post or see comments on announcements. Only the
+// view-tracking below (admin-only "seen by" tally) remains.
 function wireAnnouncementCards(student){
   document.querySelectorAll('[data-ann]').forEach(card => {
     const annId = card.dataset.ann;
     LIB.markAnnouncementViewed(annId, student.id); // Telegram/YouTube-style view count, visible to admins only
-    const wrap = card.querySelector('.comments-wrap');
-    const comments = LIB.commentsFor('announcement', annId);
-    wrap.innerHTML = comments.map(c => {
-      const cs = LIB.getDB().students.find(s=>s.id===c.studentId);
-      return `<div class="comment"><b>${LIB.escapeHtml(cs?cs.name:'ተማሪ')}</b> <small>${LIB.fmtDate(c.date)}</small><div>${LIB.escapeHtml(c.text)}</div></div>`;
-    }).join('');
-  });
-  const submit = (annId, input) => {
-    const val = input.value.trim();
-    if(!val) return;
-    LIB.addComment({ targetType:'announcement', targetId: annId, studentId: student.id, text: val });
-    input.value='';
-    renderView(document.querySelector('.nav-btn.active').dataset.view);
-  };
-  document.querySelectorAll('.comment-input').forEach(inp => {
-    inp.onkeydown = (e) => { if(e.key === 'Enter') submit(inp.dataset.ann, inp); };
-  });
-  // The Send button was previously not wired up — this is the fix so tapping
-  // "ላክ" posts the comment the same way pressing Enter does.
-  document.querySelectorAll('.comment-send').forEach(btn => {
-    btn.onclick = () => { const inp = document.querySelector(`.comment-input[data-ann="${btn.dataset.ann}"]`); submit(btn.dataset.ann, inp); };
   });
 }
 

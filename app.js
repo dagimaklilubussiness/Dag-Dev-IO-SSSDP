@@ -102,6 +102,10 @@ const LIB = (() => {
   let _fsRefs = { core: null, activity: null, feed: null };
   let _sliceCache = { core: null, activity: null, feed: null };
   let _slicesLoaded = { core: false, activity: false, feed: false };
+  // Raw JSON string last known to be in Firestore for each slice — used to skip
+  // writing a slice that hasn't actually changed. See saveDB() for why this matters.
+  let _sliceJsonCache = { core: null, activity: null, feed: null };
+  let _cloudConnected = false; // true once at least one snapshot has come back successfully
 
   function sliceOf(db, keys){
     const o = {};
@@ -146,6 +150,17 @@ const LIB = (() => {
     Object.keys(SLICE_KEYS).forEach(sliceName => {
       const slice = sliceOf(db, SLICE_KEYS[sliceName]);
       const json = JSON.stringify(slice);
+      // FIX: previously every single mutate() rewrote all 3 Firestore documents
+      // (core+activity+feed) even when only one of them actually changed — e.g.
+      // a student sending one book request triggered 3 writes, which then echoed
+      // back as 3 separate onSnapshot updates and 3 full re-renders on every open
+      // tab (admin included). That's the "everything shows loading for half a
+      // second on every tap" bug, and it also burns through Firestore's daily
+      // write quota 3x faster than necessary. Skipping unchanged slices fixes both.
+      if(_sliceJsonCache[sliceName] === json){
+        _sliceCache[sliceName] = slice;
+        return;
+      }
       if(json.length > FIRESTORE_DOC_SOFT_LIMIT){
         const msg = "SSSDP: '" + sliceName + "' data is " + Math.round(json.length/1024) + "KB — close to Firestore's 1MB per-document limit. Remove/compress some photos in that area.";
         console.error(msg);
@@ -154,10 +169,14 @@ const LIB = (() => {
       // Keep our in-memory slice cache in sync immediately so a rapid second mutate
       // (before the snapshot echoes back) composes from up-to-date data.
       _sliceCache[sliceName] = slice;
+      _sliceJsonCache[sliceName] = json;
       _fsRefs[sliceName].set({ json, updatedAt: Date.now() })
         .catch(err => {
-          const msg = "SSSDP: cloud save failed (" + sliceName + ") — " + (err && err.message ? err.message : err);
+          const msg = "SSSDP: cloud save failed (" + sliceName + ") — your last change may not have reached the admin. (" + (err && err.message ? err.message : err) + ")";
           console.error(msg, err);
+          // Roll back our "already sent" marker so the next save retries this slice
+          // instead of silently assuming it went through.
+          if(_sliceJsonCache[sliceName] === json) _sliceJsonCache[sliceName] = null;
           window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
         });
     });
@@ -177,12 +196,18 @@ const LIB = (() => {
   function attachSliceListeners(){
     Object.keys(_fsRefs).forEach(sliceName => {
       _fsRefs[sliceName].onSnapshot(snap => {
+        let rawJson = (snap.exists && snap.data() && snap.data().json) ? snap.data().json : null;
         let data = null;
-        if(snap.exists && snap.data() && snap.data().json){
-          try { data = JSON.parse(snap.data().json); } catch(e){ data = null; }
+        if(rawJson){
+          try { data = JSON.parse(rawJson); } catch(e){ data = null; }
         }
         _sliceCache[sliceName] = data || sliceOf(seedDB(), SLICE_KEYS[sliceName]);
+        // Remember exactly what Firestore has right now for this slice so a later
+        // saveDB() can skip re-sending it if nothing actually changed (see saveDB()).
+        _sliceJsonCache[sliceName] = rawJson || JSON.stringify(_sliceCache[sliceName]);
         _slicesLoaded[sliceName] = true;
+        _cloudConnected = true;
+        window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(true);
         if(_slicesLoaded.core && _slicesLoaded.activity && _slicesLoaded.feed){
           _dbCache = composeFromSlices();
           saveLocalCache(_dbCache);
@@ -190,7 +215,15 @@ const LIB = (() => {
           else { window.SSSDP_REFRESH && window.SSSDP_REFRESH(); } // live update from another device
         }
       }, err => {
-        console.error("SSSDP: '" + sliceName + "' sync error — check firebase-config.js and Firestore security rules", err);
+        // This is the exact failure mode behind "student's request never reaches
+        // admin": if this listener errors out (rules, network, quota), writes on
+        // THIS device stop reaching the shared cloud DB entirely, silently, with
+        // only a console.error — nobody sees it happen. Surface it visibly instead.
+        const msg = "SSSDP: '" + sliceName + "' cloud sync lost — changes on this device may not reach other devices until this is fixed. Check your internet connection and Firestore security rules.";
+        console.error(msg, err);
+        _cloudConnected = false;
+        window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
+        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
         if(!_ready){ _dbCache = loadLocalCache() || seedDB(); _ready = true; flushReady(); }
       });
     });
@@ -217,7 +250,10 @@ const LIB = (() => {
   function initCloud(){
     if(!window.FIREBASE_CONFIG || !window.firebase){
       // No firebase-config.js / SDK found — falls back to old device-only localStorage behavior.
-      console.warn("SSSDP: running WITHOUT cloud sync — set up firebase-config.js so student accounts work across devices.");
+      const msg = "SSSDP: running WITHOUT cloud sync — set up firebase-config.js so student accounts and requests work across devices.";
+      console.warn(msg);
+      window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+      window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
       _dbCache = loadLocalCache() || seedDB();
       _ready = true; flushReady();
       return;
@@ -237,12 +273,18 @@ const LIB = (() => {
           return migrateOrSeed(fs).then(attachSliceListeners);
         }
       }).catch(err => {
-        console.error("SSSDP: cloud sync error — check firebase-config.js and Firestore security rules", err);
+        const msg = "SSSDP: could not connect to the cloud database — running in local-only mode. Requests/comments made here will NOT reach the admin until this is fixed. (" + (err && err.message ? err.message : err) + ")";
+        console.error(msg, err);
+        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+        window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
         _dbCache = loadLocalCache() || seedDB();
         _ready = true; flushReady();
       });
     } catch(e){
-      console.error("SSSDP: cloud init failed", e);
+      const msg = "SSSDP: cloud init failed — running in local-only mode. Requests/comments made here will NOT reach the admin until this is fixed. (" + (e && e.message ? e.message : e) + ")";
+      console.error(msg, e);
+      window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+      window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
       _dbCache = loadLocalCache() || seedDB();
       _ready = true; flushReady();
     }

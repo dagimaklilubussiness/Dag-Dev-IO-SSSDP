@@ -10,6 +10,7 @@
 </head>
 <body>
 <a href="#mainArea" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
+<div class="dev-credit">this app is developed by Dagim Aklilu &amp; Dawit Werku</div>
 
 <!-- ===================== CLOUD LOADING SCREEN ===================== -->
 <div id="cloudLoading" class="auth-wrap">
@@ -54,6 +55,7 @@
     <div class="logo-row">
       <div class="logo-badge" id="logoBadgeSide" style="width:32px;height:32px;font-size:13px;"><img src="assets/school-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
       <div style="font-weight:800;font-size:13px;color:#fff;" id="brandNameSide">Admin Console</div>
+      <span class="cloud-dot" id="cloudDot" title="Cloud sync status" style="margin-inline-start:auto;"></span>
     </div>
     <div class="tibeb-strip thin" style="margin-bottom:8px;"></div>
     <button class="side-link active" data-view="Dashboard">📊 Dashboard</button>
@@ -781,6 +783,16 @@ window.SSSDP_ON_SYNC_ERROR = function(msg){
   if(!el) return;
   el.style.display = 'block';
   el.textContent = '⚠️ ' + msg;
+};
+// Always-visible dot next to the admin logo — green while live on the shared
+// cloud DB, red the moment that connection drops, so "why isn't this request
+// showing up" can be answered in one glance instead of guessing.
+window.SSSDP_ON_CLOUD_STATUS = function(connected){
+  const dot = document.getElementById('cloudDot');
+  if(!dot) return;
+  dot.classList.toggle('online', !!connected);
+  dot.classList.toggle('offline', !connected);
+  dot.title = connected ? 'Cloud sync active — live' : 'Not synced to cloud — requests from students may not appear until this is fixed';
 };
 (function init(){
   LIB.ready(() => {
