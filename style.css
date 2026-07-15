@@ -124,7 +124,26 @@ html.texture-off .oromo-strip{ display:none; }
   .dev-credit{ background:var(--black); color:var(--gold); -webkit-text-fill-color:unset; }
 }
 
-/* ---------- Cloud sync status dot ---------- */
+/* ---------- Cultural heritage icon row (Ethiopian + Oromia symbols) ---------- */
+/* Six small hand-drawn line icons, shown once in the footer of each page:
+   Lalibela cross, Axum obelisk, jebena coffee pot, tibeb weave, the Odaa tree
+   (Oromo Gadaa assembly), and the Oromo shield & spear (Gaachana fi Eeboo).
+   Purely decorative/informational (title tooltip on each), monochrome so they
+   sit quietly rather than competing with real content. */
+.culture-row{
+  display:flex; justify-content:center; align-items:center; gap:14px;
+  padding:10px 8px 4px; flex-wrap:wrap;
+}
+.culture-ic{
+  width:30px; height:30px; color: var(--gold);
+  opacity:.75; transition: opacity .15s, color .15s, transform .15s;
+}
+.culture-ic svg{ width:100%; height:100%; display:block; }
+.culture-ic:hover{ opacity:1; color: var(--red); transform: translateY(-2px); }
+.culture-caption{
+  text-align:center; font-size:10px; color:var(--grey); letter-spacing:.03em;
+  margin-bottom:6px;
+}
 .cloud-dot{
   width:9px; height:9px; border-radius:50%; flex:none;
   background: #8a8a8a; box-shadow:0 0 0 3px rgba(255,255,255,.08);
