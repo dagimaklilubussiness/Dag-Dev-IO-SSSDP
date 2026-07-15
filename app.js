@@ -361,14 +361,14 @@ const LIB = (() => {
   /* ---------------- auth: students ---------------- */
   // Admin pre-registers the student's official record with just a 16-digit FAN
   // (no FIN needed — kept out of the flow entirely per school policy).
-  function adminRegisterStudent({name, fan, klass, section, age}){
+  function adminRegisterStudent({name, fan, klass, section, age, phone}){
     fan = digitsOnly(fan);
     if(!name || !name.trim()) return { ok:false, error: "ሙሉ ስም ያስፈልጋል" };
     if(fan.length !== 16) return { ok:false, error: "FAN 16 ዲጂት መሆን አለበት" };
     const db = getDB();
     if(db.students.some(s => s.fan === fan)) return { ok:false, error: "ይህ FAN ቀድሞ ተመዝግቧል" };
     const student = { id: uid("std_"), fan, name: name.trim(), class: klass, section, age: Number(age)||null,
-      activated:false, pin:"", photo:"", createdAt: todayISO() };
+      phone: phone||"", activated:false, pin:"", photo:"", createdAt: todayISO() };
     mutate(db => db.students.push(student));
     return { ok:true, student };
   }

@@ -10,7 +10,7 @@
 </head>
 <body>
 <a href="#mainArea" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
-<div class="dev-credit">this app is developed by Dagim Aklilu &amp; Dawit Werku</div>
+<div class="dev-credit">This Website app developed by 2024/25 batch Dagim Aklilu &amp; Dawit Alemu</div>
 
 <!-- ===================== CLOUD LOADING SCREEN ===================== -->
 <div id="cloudLoading" class="auth-wrap">
@@ -25,7 +25,9 @@
 <!-- ===================== AUTH SCREEN ===================== -->
 <div id="authScreen" class="auth-wrap hidden">
   <div class="auth-card">
+    <div class="odaa-mark" aria-hidden="true"></div>
     <div class="tibeb-strip thin"></div>
+    <div class="oromo-strip thin"></div>
     <div class="auth-card-inner">
       <div class="auth-logo">
         <div class="logo-badge" id="logoBadgeAuth"><img src="assets/school-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
@@ -57,7 +59,8 @@
       <div style="font-weight:800;font-size:13px;color:#fff;" id="brandNameSide">Admin Console</div>
       <span class="cloud-dot" id="cloudDot" title="Cloud sync status" style="margin-inline-start:auto;"></span>
     </div>
-    <div class="tibeb-strip thin" style="margin-bottom:8px;"></div>
+    <div class="tibeb-strip thin" style="margin-bottom:2px;"></div>
+    <div class="oromo-strip thin" style="margin-bottom:8px;"></div>
     <button class="side-link active" data-view="Dashboard">📊 Dashboard</button>
     <button class="side-link" data-view="Students">🎓 Students</button>
     <button class="side-link" data-view="Books">📚 Books</button>
@@ -254,6 +257,7 @@ function addStudentModal(){
         <div class="field"><label>Section</label><input id="mSection" placeholder="e.g. A"></div>
       </div>
       <div class="field"><label>Age</label><input id="mAge" type="number"></div>
+      <div class="field"><label>Phone Number</label><input id="mPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
       <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16"></div>
       <div id="mErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
@@ -267,6 +271,7 @@ function addStudentModal(){
       klass: document.getElementById('mClass').value,
       section: document.getElementById('mSection').value,
       age: document.getElementById('mAge').value,
+      phone: document.getElementById('mPhone').value,
       fan: document.getElementById('mFan').value
     });
     if(!res.ok){ document.getElementById('mErr').textContent = res.error; return; }
@@ -281,20 +286,27 @@ function viewStudentModal(id){
     <div class="modal-box">
       <h3>${LIB.escapeHtml(s.name)}</h3>
       <div class="avatar-row" style="margin-bottom:12px;">
-        ${avatarHtml(s,'lg')}
+        <div id="stuPhotoBig" style="cursor:${s.photo?'zoom-in':'default'};">${avatarHtml(s,'lg')}</div>
         <label class="btn sm outline avatar-upload">Change Photo
           <input type="file" accept="image/*" id="stuPhotoInput">
         </label>
         ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}
       </div>
+      ${s.photo?'<p class="hint" style="color:var(--grey);font-size:11px;margin:-6px 0 12px;">Tap the photo to view it full-size.</p>':''}
       <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}"></div>
       <div class="grid cols-2">
         <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
         <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}"></div>
       </div>
-      <div class="field"><label>Age</label><input id="stuAge" type="number" value="${s.age||''}"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Age</label><input id="stuAge" type="number" value="${s.age||''}"></div>
+        <div class="field"><label>Phone Number</label><input id="stuPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX" value="${LIB.escapeAttr(s.phone||'')}"></div>
+      </div>
       <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric"></div>
-      <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
+        <div class="field"><label>Current PIN</label><div style="font-weight:800;letter-spacing:.15em;">${s.pin ? LIB.escapeHtml(s.pin) : '— not set yet —'}</div></div>
+      </div>
       <div id="stuEditErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="field"><label>Borrow history</label>
         <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
@@ -308,6 +320,8 @@ function viewStudentModal(id){
         <button class="btn primary" id="stuSaveBtn">Save Changes</button>
       </div>
     </div>`);
+  const bigPhoto = document.getElementById('stuPhotoBig');
+  if(bigPhoto && s.photo) bigPhoto.onclick = () => showFullPhoto(s.photo, s.name);
   document.getElementById('stuSaveBtn').onclick = () => {
     const errBox = document.getElementById('stuEditErr');
     const name = document.getElementById('stuName').value.trim();
@@ -318,7 +332,7 @@ function viewStudentModal(id){
     if(newFan !== s.fan && db.students.some(x=>x.fan===newFan)){ errBox.textContent = 'ይህ FAN ቀድሞ ተመዝግቧል'; return; }
     LIB.adminEditStudent(id, {
       name, class: document.getElementById('stuClass').value, section: document.getElementById('stuSection').value,
-      age: Number(document.getElementById('stuAge').value)||null, fan: newFan
+      age: Number(document.getElementById('stuAge').value)||null, phone: document.getElementById('stuPhone').value.trim(), fan: newFan
     });
     closeModal(); render('Students');
   };
@@ -338,6 +352,17 @@ function viewStudentModal(id){
   };
   const clearBtn = document.getElementById('stuPhotoClear');
   if(clearBtn) clearBtn.onclick = () => { LIB.adminSetStudentPhoto(id, ''); closeModal(); viewStudentModal(id); render('Students'); };
+}
+
+// Full-size photo viewer — the student list only ever shows a small round
+// thumbnail, so admin asked for a way to actually see the whole picture.
+function showFullPhoto(url, name){
+  openModal(`
+    <div class="modal-box" style="text-align:center;">
+      <h3>${LIB.escapeHtml(name||'Photo')}</h3>
+      <img src="${LIB.escapeAttr(url)}" alt="" style="max-width:100%;max-height:70vh;border-radius:10px;box-shadow:var(--shadow);">
+      <div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>
+    </div>`);
 }
 
 function resetPinModal(id){

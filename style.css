@@ -77,11 +77,51 @@ input,select,textarea{font-family:inherit}
 .tibeb-strip.thin{ height:6px; }
 html.texture-off .tibeb-strip{ display:none; }
 
+/* ---------- Oromo cultural strip (Odaa-tree star motif, red/black/white) ---------- */
+/* A companion strip alongside the tibeb weave above — a modern, minimal nod to
+   Oromo visual heritage (the Gadaa star and the red/black/white palette),
+   drawn as small repeating diamonds so it reads as pattern, not flag/emblem. */
+.oromo-strip{
+  height:8px;
+  background:
+    linear-gradient(135deg, var(--white) 15%, transparent 15%, transparent 50%, var(--white) 50%, var(--white) 65%, transparent 65%) 0 0/12px 12px,
+    var(--black);
+  background-repeat: repeat-x;
+  position: relative;
+  border-block: 1px solid rgba(0,0,0,.15);
+}
+.oromo-strip::before{
+  content:"★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★";
+  position:absolute; inset:0; overflow:hidden; white-space:nowrap;
+  color: var(--red); font-size:8px; line-height:8px; letter-spacing:4px;
+  text-align:center;
+}
+.oromo-strip.thin{ height:5px; }
+.oromo-strip.thin::before{ display:none; }
+html.texture-off .oromo-strip{ display:none; }
+
+/* Subtle Odaa-tree (Gadaa assembly sycamore) watermark — a quiet nod to Oromo
+   heritage used only as a faint background accent, never behind readable text
+   at full strength. */
+.odaa-mark{
+  position:absolute; inset-inline-end:-10px; bottom:-14px; width:110px; height:110px;
+  opacity:.06; pointer-events:none; z-index:0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='34' r='24' fill='%23121212'/><circle cx='30' cy='26' r='14' fill='%23121212'/><circle cx='70' cy='26' r='14' fill='%23121212'/><rect x='47' y='50' width='6' height='34' fill='%23121212'/></svg>");
+  background-repeat:no-repeat; background-size:contain;
+}
+
 /* ---------- Small developer credit line (top of every page) ---------- */
 .dev-credit{
-  text-align:center; font-size:10px; font-weight:600; letter-spacing:.02em;
-  color:var(--grey); background:var(--off); padding:4px 8px;
-  border-bottom:1px solid var(--line);
+  text-align:center; font-size:10.5px; font-weight:700; letter-spacing:.04em;
+  font-family: var(--font-lat);
+  text-transform: uppercase;
+  background: var(--black);
+  background-image: linear-gradient(90deg, var(--gold), #f2d68a 35%, var(--gold) 70%, #f2d68a);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  padding:5px 8px;
+}
+@supports not (background-clip: text){
+  .dev-credit{ background:var(--black); color:var(--gold); -webkit-text-fill-color:unset; }
 }
 
 /* ---------- Cloud sync status dot ---------- */
@@ -226,7 +266,7 @@ th{ font-size:11.5px; text-transform:uppercase; letter-spacing:.02em; color:var(
 /* ---------- Login screens ---------- */
 .auth-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
   background: radial-gradient(circle at 20% 20%, #2a0d10 0%, var(--black) 55%);}
-.auth-card{ width:100%; max-width:400px; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.35);}
+.auth-card{ width:100%; max-width:400px; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.35); position:relative;}
 .auth-card-inner{ padding:26px 24px; }
 .auth-logo{ display:flex; align-items:center; gap:10px; margin-bottom:18px;}
 .auth-logo .logo-badge{ width:46px;height:46px;border-radius:12px; background:linear-gradient(145deg,var(--red),var(--red-dark)); display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800; overflow:hidden;}
