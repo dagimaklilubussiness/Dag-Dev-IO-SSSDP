@@ -59,55 +59,48 @@ input,select,textarea{font-family:inherit}
   clip:rect(0,0,0,0); white-space:nowrap; border:0;
 }
 
-/* ---------- Cultural texture strip (Ethiopian tibeb-inspired weave) ---------- */
-/* A simple, respectful nod to Ethiopian shema/tibeb border weaving —
-   repeating diamond + zig-zag motifs in the brand colors, used as a thin
-   decorative divider strip (never as a background behind readable text). */
+/* ---------- Tibeb-inspired weave strip ---------- */
+/* An original repeating diamond/zig-zag band in the brand palette — a nod to
+   local weaving patterns, used as a thin decorative divider. Not traced from
+   any external artwork; every shape here is a plain CSS gradient. */
 .tibeb-strip{
-  height:10px;
+  height:12px;
   background:
-    linear-gradient(45deg, var(--gold) 25%, transparent 25%) 0 0/10px 10px,
-    linear-gradient(-45deg, var(--gold) 25%, transparent 25%) 0 0/10px 10px,
-    linear-gradient(45deg, transparent 75%, var(--red) 75%) 0 0/10px 10px,
-    linear-gradient(-45deg, transparent 75%, var(--green) 75%) 0 0/10px 10px,
+    linear-gradient(45deg, var(--gold) 25%, transparent 25%) 0 0/12px 12px,
+    linear-gradient(-45deg, var(--gold) 25%, transparent 25%) 0 0/12px 12px,
+    linear-gradient(45deg, transparent 75%, var(--red) 75%) 0 0/12px 12px,
+    linear-gradient(-45deg, transparent 75%, var(--red-dark) 75%) 0 0/12px 12px,
     var(--black);
   background-repeat: repeat-x;
   border-block: 1px solid rgba(0,0,0,.15);
 }
 .tibeb-strip.thin{ height:6px; }
-html.texture-off .tibeb-strip{ display:none; }
 
-/* ---------- Oromo cultural strip (Odaa-tree star motif, red/black/white) ---------- */
-/* A companion strip alongside the tibeb weave above — a modern, minimal nod to
-   Oromo visual heritage (the Gadaa star and the red/black/white palette),
-   drawn as small repeating diamonds so it reads as pattern, not flag/emblem. */
-.oromo-strip{
-  height:8px;
-  background:
-    linear-gradient(135deg, var(--white) 15%, transparent 15%, transparent 50%, var(--white) 50%, var(--white) 65%, transparent 65%) 0 0/12px 12px,
-    var(--black);
-  background-repeat: repeat-x;
-  position: relative;
-  border-block: 1px solid rgba(0,0,0,.15);
-}
-.oromo-strip::before{
-  content:"★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★ ★";
-  position:absolute; inset:0; overflow:hidden; white-space:nowrap;
-  color: var(--red); font-size:8px; line-height:8px; letter-spacing:4px;
-  text-align:center;
-}
-.oromo-strip.thin{ height:5px; }
-.oromo-strip.thin::before{ display:none; }
-html.texture-off .oromo-strip{ display:none; }
-
-/* Subtle Odaa-tree (Gadaa assembly sycamore) watermark — a quiet nod to Oromo
-   heritage used only as a faint background accent, never behind readable text
-   at full strength. */
-.odaa-mark{
-  position:absolute; inset-inline-end:-10px; bottom:-14px; width:110px; height:110px;
-  opacity:.06; pointer-events:none; z-index:0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='34' r='24' fill='%23121212'/><circle cx='30' cy='26' r='14' fill='%23121212'/><circle cx='70' cy='26' r='14' fill='%23121212'/><rect x='47' y='50' width='6' height='34' fill='%23121212'/></svg>");
+/* Faint diamond-weave watermark tucked in the corner of auth cards — quiet
+   accent, never sits behind readable text at full strength. */
+.heritage-mark{
+  position:absolute; inset-inline-end:-10px; bottom:-14px; width:100px; height:100px;
+  opacity:.05; pointer-events:none; z-index:0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 4 L92 46 L50 88 L8 46 Z' fill='none' stroke='%23121212' stroke-width='4'/><path d='M50 24 L72 46 L50 68 L28 46 Z' fill='%23121212'/></svg>");
   background-repeat:no-repeat; background-size:contain;
+}
+
+/* ---------- Cultural heritage icon row (footer) ---------- */
+/* A handful of small original line icons — coffee ceremony, weaving,
+   reading/learning, highland landscape, diamond motif — purely decorative. */
+.culture-row{
+  display:flex; justify-content:center; align-items:center; gap:14px;
+  padding:10px 8px 4px; flex-wrap:wrap;
+}
+.culture-ic{
+  width:28px; height:28px; color: var(--gold);
+  opacity:.75; transition: opacity .15s, color .15s, transform .15s;
+}
+.culture-ic svg{ width:100%; height:100%; display:block; }
+.culture-ic:hover{ opacity:1; color: var(--red); transform: translateY(-2px); }
+.culture-caption{
+  text-align:center; font-size:10px; color:var(--grey); letter-spacing:.03em;
+  margin-bottom:6px;
 }
 
 /* ---------- Small developer credit line (top of every page) ---------- */
@@ -124,26 +117,6 @@ html.texture-off .oromo-strip{ display:none; }
   .dev-credit{ background:var(--black); color:var(--gold); -webkit-text-fill-color:unset; }
 }
 
-/* ---------- Cultural heritage icon row (Ethiopian + Oromia symbols) ---------- */
-/* Six small hand-drawn line icons, shown once in the footer of each page:
-   Lalibela cross, Axum obelisk, jebena coffee pot, tibeb weave, the Odaa tree
-   (Oromo Gadaa assembly), and the Oromo shield & spear (Gaachana fi Eeboo).
-   Purely decorative/informational (title tooltip on each), monochrome so they
-   sit quietly rather than competing with real content. */
-.culture-row{
-  display:flex; justify-content:center; align-items:center; gap:14px;
-  padding:10px 8px 4px; flex-wrap:wrap;
-}
-.culture-ic{
-  width:30px; height:30px; color: var(--gold);
-  opacity:.75; transition: opacity .15s, color .15s, transform .15s;
-}
-.culture-ic svg{ width:100%; height:100%; display:block; }
-.culture-ic:hover{ opacity:1; color: var(--red); transform: translateY(-2px); }
-.culture-caption{
-  text-align:center; font-size:10px; color:var(--grey); letter-spacing:.03em;
-  margin-bottom:6px;
-}
 .cloud-dot{
   width:9px; height:9px; border-radius:50%; flex:none;
   background: #8a8a8a; box-shadow:0 0 0 3px rgba(255,255,255,.08);
@@ -189,12 +162,18 @@ html.texture-off .oromo-strip{ display:none; }
   box-shadow: 0 -6px 18px rgba(0,0,0,.06);
 }
 .nav-btn{
+  position: relative;
   background:none;border:none; display:flex; flex-direction:column; align-items:center; gap:2px;
   color:var(--grey); font-size:11px; font-weight:600; padding:6px 10px; border-radius:10px;
 }
 .nav-btn .ic{ font-size:19px; line-height:1}
 .nav-btn.active{ color: var(--red); }
 .nav-btn.active .ic{ transform: translateY(-1px);}
+.nav-badge{
+  position:absolute; top:2px; inset-inline-end:6px;
+  min-width:16px; height:16px; padding:0 4px; border-radius:9px;
+  background: var(--red); color:#fff; font-size:10px; font-weight:800; line-height:16px; text-align:center;
+}
 
 /* ---------- Cards / generic ---------- */
 .card{

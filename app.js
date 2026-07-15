@@ -30,7 +30,10 @@ const LIB = (() => {
   const escapeHtml = (s="") => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const escapeAttr = escapeHtml;
   const digitsOnly = (s="") => (s||"").replace(/\D/g,"");
-  const stars = (n) => "★".repeat(n) + "☆".repeat(5-n);
+  // Clamped so a bad/out-of-range value (the historical bug: entering "6" here
+  // used to throw and blank the entire book list, since "☆".repeat(5-6) is a
+  // negative count) can never crash rendering again.
+  const stars = (n) => { const c = Math.max(0, Math.min(5, Number(n)||0)); return "★".repeat(c) + "☆".repeat(5-c); };
   // loose fuzzy match: normalizes spaces/case and checks substring OR token-subset match,
   // so admin can find "Abebe Kebede" by typing "abebe", "kebede", or minor variants —
   // partial names work fine, a full/exact name is not required.
@@ -463,7 +466,8 @@ const LIB = (() => {
   function searchStudents(query){
     const db = getDB();
     if(!query) return db.students;
-    return db.students.filter(s => fuzzyMatch(query, s.name) || (s.fan||"").includes(digitsOnly(query)));
+    const qDigits = digitsOnly(query);
+    return db.students.filter(s => fuzzyMatch(query, s.name) || (qDigits && (s.fan||"").includes(qDigits)));
   }
   // Full removal ("withdraw") of a student record: releases any copies they were
   // holding back to 'available', then deletes the student plus their requests,
@@ -682,15 +686,32 @@ const LIB = (() => {
   function allPending(){ return getDB().requests.filter(r => r.status === "pending"); }
   function allBorrowed(){ return getDB().requests.filter(r => r.status === "borrowed"); }
 
-  /* ---------------- announcements (with view tracking) ---------------- */
-  function postAnnouncement({title, body, mediaUrl, mediaType, mediaName, postedBy, postedByRole}){
+  /* ---------------- announcements (with view tracking + grade tags) ---------------- */
+  // AUDIENCES: "all" (#GENERAL — every student) or a grade string "9"/"10"/"11"/"12"
+  // (#GRADE9.."#GRADE12 — only students in that class see/get notified about it).
+  const AUDIENCES = ["all", "9", "10", "11", "12"];
+  const AUDIENCE_LABEL = { all: "#GENERAL", "9": "#GRADE9", "10": "#GRADE10", "11": "#GRADE11", "12": "#GRADE12" };
+  function postAnnouncement({title, body, mediaUrl, mediaType, mediaName, postedBy, postedByRole, audience}){
     const rec = { id: uid("an_"), title, body, mediaUrl:mediaUrl||"", mediaType:mediaType||"", mediaName:mediaName||"",
+      audience: AUDIENCES.includes(audience) ? audience : "all",
       postedBy, postedByRole, date: todayISO(), views: [] };
     mutate(db => db.announcements.unshift(rec));
     return rec;
   }
   function removeAnnouncement(id){ mutate(db => { db.announcements = db.announcements.filter(a => a.id !== id); }); }
   function listAnnouncements(){ return getDB().announcements.slice().sort((a,b)=> new Date(b.date)-new Date(a.date)); }
+  // Same as listAnnouncements(), but narrowed to what a given student should
+  // actually see: #GENERAL posts plus any post tagged for that student's own grade.
+  function listAnnouncementsFor(student){
+    const klass = String((student&&student.class)||"").trim();
+    return listAnnouncements().filter(a => !a.audience || a.audience === "all" || a.audience === klass);
+  }
+  // Count of posts relevant to this student that they haven't opened yet —
+  // drives the notification badge on the Inbox tab.
+  function unreadAnnouncementCount(student){
+    if(!student) return 0;
+    return listAnnouncementsFor(student).filter(a => !(a.views||[]).includes(student.id)).length;
+  }
   // Like a Telegram/YouTube view counter — records that this student opened the
   // post at least once; admins see the tally, students don't (keeps it uncluttered).
   function markAnnouncementViewed(id, studentId){
@@ -710,6 +731,23 @@ const LIB = (() => {
     const db = getDB();
     return db.comments.filter(c => c.targetType===targetType && c.targetId===targetId)
       .sort((a,b)=> new Date(a.date)-new Date(b.date));
+  }
+
+  /* ---------------- restore demo books ---------------- */
+  // Adds back the original sample book titles if they're missing (matched by
+  // title, so it's safe to click more than once — it won't create duplicates).
+  const DEMO_BOOKS = [
+    { title: "Introduction to Biology", author: "Dr. Alemu Worku", category: "Student Text Books", condition: "Good condition, minor cover wear", totalCopies: 5 },
+    { title: "Amharic Grammar Guide", author: "W/ro Almaz Tadesse", category: "Teacher Guide", condition: "Brand new", totalCopies: 2 },
+    { title: "General Knowledge Encyclopedia", author: "Various", category: "General Books", condition: "Old, but readable", totalCopies: 3 },
+    { title: "Physics Reference for Grade 11-12", author: "Mekonnen Girma", category: "Student Reference", condition: "Good", totalCopies: 4 }
+  ];
+  function restoreDemoBooks(){
+    const db = getDB();
+    const existingTitles = new Set(db.books.map(b => (b.title||"").trim().toLowerCase()));
+    const toAdd = DEMO_BOOKS.filter(b => !existingTitles.has(b.title.trim().toLowerCase()));
+    toAdd.forEach(b => addBook(b));
+    return { ok:true, added: toAdd.length };
   }
 
   /* ---------------- reset demo data ---------------- */
@@ -758,11 +796,12 @@ const LIB = (() => {
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
     adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
-    setupFirstDirector, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData,
+    setupFirstDirector, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData, restoreDemoBooks,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,
     reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed,
-    postAnnouncement, removeAnnouncement, listAnnouncements, markAnnouncementViewed,
+    AUDIENCES, AUDIENCE_LABEL,
+    postAnnouncement, removeAnnouncement, listAnnouncements, listAnnouncementsFor, unreadAnnouncementCount, markAnnouncementViewed,
     addComment, commentsFor,
     exportJSON, importJSON
   };
