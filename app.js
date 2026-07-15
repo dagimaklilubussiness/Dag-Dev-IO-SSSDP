@@ -306,10 +306,12 @@ const LIB = (() => {
         youtube: "",
         texture: true
       },
-      staff: [
-        { id: uid("stf_"), username: "director", password: "director123", role: "director", name: "Director Admin" },
-        { id: uid("stf_"), username: "library", password: "library123", role: "library", name: "Library Staff" }
-      ],
+      // No hardcoded demo admin account here on purpose — shipping a known
+      // username/password in the source code is a security hole. Instead, when
+      // staff is empty, admin.html shows a one-time "Create Director Account"
+      // setup screen (see LIB.setupFirstDirector) so the real director picks
+      // their own credentials.
+      staff: [],
       students: [
         {
           id: uid("std_"), fan: "1002003004005006",
@@ -420,8 +422,11 @@ const LIB = (() => {
 
   function staffLogin(username, password){
     const db = getDB();
-    const staff = db.staff.find(s => s.username.toLowerCase() === username.trim().toLowerCase());
-    if(!staff || staff.password !== password) return { ok:false, error:"የተጠቃሚ ስም ወይም የይለፍ ቃል ትክክል አይደለም" };
+    const staff = db.staff.find(s => s.username.trim().toLowerCase() === (username||"").trim().toLowerCase());
+    // Trim the password too — mobile keyboards can silently append a trailing
+    // space via autocorrect, which previously made a perfectly correct password
+    // fail to match the one stored when the staff account was created.
+    if(!staff || staff.password !== (password||"").trim()) return { ok:false, error:"የተጠቃሚ ስም ወይም የይለፍ ቃል ትክክል አይደለም" };
     setSession({ type:"staff", id: staff.id, role: staff.role });
     return { ok:true, staff };
   }
@@ -480,14 +485,44 @@ const LIB = (() => {
   }
 
   /* ---------------- staff management (director only) ---------------- */
+  // One-time bootstrap: creates the very first Director account when no staff
+  // accounts exist yet at all (fresh install, or one that never had a demo
+  // account seeded). This is the ONLY way to create a staff account without
+  // already being logged in as a director, and it stops working forever the
+  // moment any staff record exists — so it can never be used to sneak in a
+  // second/rogue admin later.
+  function setupFirstDirector({name, username, password}){
+    const db = getDB();
+    if(db.staff.length > 0) return { ok:false, error:"Setup already completed — please log in instead." };
+    name = (name||"").trim(); username = (username||"").trim(); password = (password||"").trim();
+    if(!name || !username || !password) return { ok:false, error:"Please fill in all fields." };
+    if(password.length < 6) return { ok:false, error:"Password should be at least 6 characters." };
+    const staff = { id: uid("stf_"), username, password, role: "director", name };
+    mutate(db => db.staff.push(staff));
+    setSession({ type:"staff", id: staff.id, role: staff.role });
+    return { ok:true, staff };
+  }
+  // Only the currently logged-in Director may add or remove staff accounts.
+  // Enforced here (not just hidden in the UI) so a Library Staff account can't
+  // do it by calling LIB.addStaff/removeStaff directly from the console.
   function addStaff({username, password, role, name}){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'director') return { ok:false, error:"Only the Director can add staff accounts." };
+    name = (name||"").trim(); username = (username||"").trim(); password = (password||"").trim();
+    if(!name || !username || !password) return { ok:false, error:"Please fill in all fields." };
     const db = getDB();
     if(db.staff.some(s => s.username.toLowerCase() === username.toLowerCase())) return {ok:false,error:"ይህ የተጠቃሚ ስም አለ"};
     const staff = { id: uid("stf_"), username, password, role, name };
     mutate(db => db.staff.push(staff));
     return { ok:true, staff };
   }
-  function removeStaff(id){ mutate(db => { db.staff = db.staff.filter(s => s.id !== id); }); }
+  function removeStaff(id){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'director') return { ok:false, error:"Only the Director can remove staff accounts." };
+    if(actor.id === id) return { ok:false, error:"You can't remove your own account." };
+    mutate(db => { db.staff = db.staff.filter(s => s.id !== id); });
+    return { ok:true };
+  }
   // Any staff member (director or library) can change their own login password from Settings.
   function staffChangeOwnPassword(staffId, oldPassword, newPassword){
     const db = getDB();
@@ -723,7 +758,7 @@ const LIB = (() => {
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
     adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
-    addStaff, removeStaff, staffChangeOwnPassword, clearDemoData,
+    setupFirstDirector, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,
     reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed,
