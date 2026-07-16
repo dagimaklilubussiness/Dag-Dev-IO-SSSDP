@@ -691,14 +691,38 @@ const LIB = (() => {
   // (#GRADE9.."#GRADE12 — only students in that class see/get notified about it).
   const AUDIENCES = ["all", "9", "10", "11", "12"];
   const AUDIENCE_LABEL = { all: "#GENERAL", "9": "#GRADE9", "10": "#GRADE10", "11": "#GRADE11", "12": "#GRADE12" };
-  function postAnnouncement({title, body, mediaUrl, mediaType, mediaName, postedBy, postedByRole, audience}){
+  function postAnnouncement({title, body, mediaUrl, mediaType, mediaName, postedBy, postedByRole, postedById, audience}){
     const rec = { id: uid("an_"), title, body, mediaUrl:mediaUrl||"", mediaType:mediaType||"", mediaName:mediaName||"",
       audience: AUDIENCES.includes(audience) ? audience : "all",
-      postedBy, postedByRole, date: todayISO(), views: [] };
+      postedBy, postedByRole, postedById: postedById||"", date: todayISO(), views: [] };
     mutate(db => db.announcements.unshift(rec));
     return rec;
   }
-  function removeAnnouncement(id){ mutate(db => { db.announcements = db.announcements.filter(a => a.id !== id); }); }
+  // Edit/delete are restricted to the staff member who originally posted the
+  // announcement — staffId must match the record's postedById, or the call is
+  // rejected. This is what lets a teacher/library staff fix or take down only
+  // what they themselves sent, without touching anyone else's posts.
+  function isAnnouncementOwner(annId, staffId){
+    const a = getDB().announcements.find(x => x.id === annId);
+    return !!(a && staffId && a.postedById === staffId);
+  }
+  function updateAnnouncement(id, staffId, {title, body, mediaUrl, mediaType, mediaName, audience}){
+    if(!isAnnouncementOwner(id, staffId)) return { ok:false, error:"You can only edit announcements you posted yourself." };
+    mutate(db => {
+      const a = db.announcements.find(x => x.id === id);
+      if(!a) return;
+      a.title = title; a.body = body;
+      a.mediaUrl = mediaUrl||""; a.mediaType = mediaType||""; a.mediaName = mediaName||"";
+      a.audience = AUDIENCES.includes(audience) ? audience : "all";
+      a.editedAt = todayISO();
+    });
+    return { ok:true };
+  }
+  function removeAnnouncement(id, staffId){
+    if(!isAnnouncementOwner(id, staffId)) return { ok:false, error:"You can only delete announcements you posted yourself." };
+    mutate(db => { db.announcements = db.announcements.filter(a => a.id !== id); });
+    return { ok:true };
+  }
   function listAnnouncements(){ return getDB().announcements.slice().sort((a,b)=> new Date(b.date)-new Date(a.date)); }
   // Same as listAnnouncements(), but narrowed to what a given student should
   // actually see: #GENERAL posts plus any post tagged for that student's own grade.
@@ -801,7 +825,7 @@ const LIB = (() => {
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,
     reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed,
     AUDIENCES, AUDIENCE_LABEL,
-    postAnnouncement, removeAnnouncement, listAnnouncements, listAnnouncementsFor, unreadAnnouncementCount, markAnnouncementViewed,
+    postAnnouncement, updateAnnouncement, removeAnnouncement, isAnnouncementOwner, listAnnouncements, listAnnouncementsFor, unreadAnnouncementCount, markAnnouncementViewed,
     addComment, commentsFor,
     exportJSON, importJSON
   };
