@@ -19,9 +19,10 @@
   <div class="auth-card loading-card">
     <div class="tibeb-strip textured thin"></div>
     <div class="auth-card-inner" style="padding:38px 24px 30px;">
-      <div class="loading-badge"><img src="assets/motif-badge.png" alt=""></div>
+      <div class="loading-badge"><img src="motif-badge.png" alt="" onerror="this.style.display='none'"></div>
       <div class="loading-spinner" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-      <div class="loading-caption" id="loadingCaption">እየተጫነ ነው... / Loading...</div>
+      <div class="loading-caption" id="loadingCaption">Loading…</div>
+      <div class="loading-slow hidden" id="loadingSlow">Taking longer than usual — check your connection.<br><button class="btn outline sm" type="button" onclick="location.reload()">Retry</button></div>
     </div>
     <div class="tibeb-strip textured thin"></div>
   </div>
@@ -34,7 +35,7 @@
     <div class="tibeb-strip textured"></div>
     <div class="auth-card-inner">
       <div class="auth-logo">
-        <div class="logo-badge" id="logoBadge"><img src="assets/school-logo.jpg" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+        <div class="logo-badge" id="logoBadge"><img src="school-logo.jpg" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
         <div class="brand-name" id="brandNameApp">SSSDP<small id="brandSubApp">የተማሪ መግቢያ • Student Access</small></div>
       </div>
 
@@ -66,7 +67,7 @@
 <!-- ===================== APP SHELL ===================== -->
 <div id="appShell" class="app-shell hidden">
   <div class="topbar">
-    <div class="logo-badge" id="logoBadge2"><img src="assets/school-logo.jpg" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+    <div class="logo-badge" id="logoBadge2"><img src="school-logo.jpg" alt="" onerror="this.style.display='none'; this.parentElement.textContent=window.__logoFallback||'S';" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
     <div class="brand" id="brandTop">SSSDP<small id="studentNameTag"></small></div>
     <div class="spacer"></div>
     <span class="cloud-dot" id="cloudDot" title="የደመና ግንኙነት ሁኔታ / Cloud sync status"></span>
@@ -92,7 +93,7 @@
       <div class="culture-ic" title="Diamond weave"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M20 4 L34 20 L20 36 L6 20 Z"/><path d="M20 12 L28 20 L20 28 L12 20 Z"/></svg></div>
     </div>
     <div class="culture-caption">SSSDP · Woven with local heritage</div>
-    <img src="assets/developer-logo.jpg" alt="" style="height:16px;vertical-align:middle;margin-inline-end:5px;border-radius:3px;" onerror="this.style.display='none'">
+    <img src="developer-logo.jpg" alt="" style="height:16px;vertical-align:middle;margin-inline-end:5px;border-radius:3px;" onerror="this.style.display='none'">
     © 2026 <a href="https://t.me/dagdevio" target="_blank" rel="noopener">DAG DEV IO</a> — t.me/dagdevio
   </footer>
 
@@ -135,13 +136,13 @@ document.getElementById('brandNameApp').firstChild.nodeValue = s.portalName ? s.
 document.getElementById('brandTop').firstChild.nodeValue = s.portalName ? s.portalName.split(' — ')[0] : 'SSSDP';
 document.title = (s.portalName||'SSSDP') + ' • ተማሪ መግቢያ';
 
-// Logo priority: 1) admin-uploaded logo saved in Settings (base64/URL)  2) assets/school-logo.jpg  3) letter fallback
+// Logo priority: 1) admin-uploaded logo saved in Settings (base64/URL)  2) school-logo.jpg  3) letter fallback
 function wireLogo(img){
   if(s.logoUrl){
     img.src = s.logoUrl;
     img.style.display = '';
     img.addEventListener('error', () => { img.style.display='none'; img.parentElement.textContent = window.__logoFallback; }, { once:true });
-  } // else: local assets/school-logo.jpg already set via src attribute; its own onerror handles fallback
+  } // else: local school-logo.jpg already set via src attribute; its own onerror handles fallback
 }
 document.querySelectorAll('#logoBadge img, #logoBadge2 img').forEach(wireLogo);
 
@@ -444,22 +445,14 @@ window.SSSDP_REFRESH = function(){
   }
 };
 (function init(){
-  const capEl = document.getElementById('loadingCaption');
-  const caps = [
-    'እየተጫነ ነው... / Loading...',
-    'ከደመና ጋር በማመሳሰል / Syncing with the cloud...',
-    'የቤተ-መጻሕፍት ዝርዝር በማምጣት / Fetching your library...',
-    'የመግቢያ ማያ ገጽ በማዘጋጀት / Preparing the login screen...'
-  ];
-  let capIdx = 0;
-  const capTimer = setInterval(() => {
-    if(!capEl) return;
-    capIdx = (capIdx+1) % caps.length;
-    capEl.classList.add('fade');
-    setTimeout(() => { capEl.textContent = caps[capIdx]; capEl.classList.remove('fade'); }, 220);
-  }, 1700);
+  // If the cloud takes a while to answer, don't leave the spinner running with
+  // no explanation — surface a "still working on it" message with a Retry.
+  const slowTimer = setTimeout(() => {
+    const el = document.getElementById('loadingSlow');
+    if(el) el.classList.remove('hidden');
+  }, 8000);
   LIB.ready(() => {
-    clearInterval(capTimer);
+    clearTimeout(slowTimer);
     document.getElementById('cloudLoading').classList.add('hidden');
     document.getElementById('authScreen').classList.remove('hidden');
     const student = LIB.currentStudent();
