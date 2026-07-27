@@ -321,8 +321,106 @@ function avatarHtml(person, size){
 }
 
 /* ================= DASHBOARD ================= */
+/* ================= SVG CHART HELPERS =================
+   Small, dependency-free SVG chart builders (no Chart.js/CDN needed, so
+   these keep working offline inside the installed APK). Used by the
+   Registrar/Director statistics dashboard below. */
+const CHART_COLORS = { male:'#3b6fd6', female:'#d6437b', unspecified:'#9a938c', brand:'#C8102E', gold:'#d9a441' };
+
+function svgDonut(parts, size){
+  size = size || 176;
+  const stroke = Math.round(size*0.16);
+  const r = (size - stroke)/2;
+  const cx = size/2, cy = size/2;
+  const total = parts.reduce((s,p)=>s+p.value,0);
+  if(!total) return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#eee" stroke-width="${stroke}"/></svg>`;
+  const circumference = 2*Math.PI*r;
+  let acc = 0, segs = '';
+  parts.forEach(p => {
+    if(p.value <= 0) return;
+    const frac = p.value/total;
+    const dash = Math.max(frac*circumference - 1.5, 0); // tiny gap between segments
+    const gap = circumference - dash;
+    const rotate = (acc/total)*360 - 90;
+    segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${gap}" stroke-linecap="round" transform="rotate(${rotate} ${cx} ${cy})"><title>${LIB.escapeHtml(p.label)}: ${p.value}</title></circle>`;
+    acc += p.value;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${segs}
+    <text x="${cx}" y="${cy-4}" text-anchor="middle" font-size="${Math.round(size*0.16)}" font-weight="800" fill="var(--black)">${total}</text>
+    <text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10" fill="var(--grey)">total</text>
+  </svg>`;
+}
+
+function chartLegend(parts){
+  return `<div class="chart-legend">${parts.map(p=>`<span class="chart-legend-item"><i style="background:${p.color}"></i>${LIB.escapeHtml(p.label)} (${p.value})</span>`).join('')}</div>`;
+}
+
+// Grouped vertical bar chart. categories: string[]. series: [{name,color,values:number[]}] aligned to categories.
+function svgGroupedBars(categories, series, opts){
+  opts = opts || {};
+  const W = opts.width || 640, H = opts.height || 240;
+  const padL = 34, padB = 34, padT = 14, padR = 10;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxVal = Math.max(1, ...series.flatMap(s=>s.values));
+  const niceMax = Math.ceil(maxVal*1.15) || 1;
+  const groupW = plotW / Math.max(categories.length,1);
+  const barGap = 3;
+  const barW = Math.max(4, (groupW - barGap*(series.length+1)) / series.length);
+  let bars = '', xLabels = '';
+  categories.forEach((cat, ci) => {
+    const groupX = padL + ci*groupW;
+    series.forEach((s, si) => {
+      const val = s.values[ci] || 0;
+      const barH = (val/niceMax) * plotH;
+      const x = groupX + barGap + si*(barW+barGap);
+      const y = padT + plotH - barH;
+      bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${s.color}"><title>${LIB.escapeHtml(s.name)} — ${LIB.escapeHtml(cat)}: ${val}</title></rect>`;
+      if(val > 0 && barH > 12) bars += `<text x="${(x+barW/2).toFixed(1)}" y="${(y-3).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--grey)">${val}</text>`;
+    });
+    xLabels += `<text x="${(groupX+groupW/2).toFixed(1)}" y="${H-padB+16}" text-anchor="middle" font-size="10.5" fill="var(--black)">${LIB.escapeHtml(cat)}</text>`;
+  });
+  // simple y-axis gridlines (0, mid, max)
+  let grid = '';
+  [0, 0.5, 1].forEach(f => {
+    const y = padT + plotH - f*plotH;
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#eee" stroke-width="1"/>`;
+    grid += `<text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--grey)">${Math.round(f*niceMax)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="max-width:${W}px;">${grid}${bars}${xLabels}</svg>`;
+}
+
+// Simple area/line chart for a time trend. points: [{label, value}]
+function svgLineArea(points, opts){
+  opts = opts || {};
+  const W = opts.width || 640, H = opts.height || 160;
+  const padL = 30, padB = 22, padT = 14, padR = 10;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  if(points.length < 2){
+    return `<div class="empty" style="padding:20px;">Not enough date spread yet to draw a trend line.</div>`;
+  }
+  const maxVal = Math.max(1, ...points.map(p=>p.value));
+  const niceMax = Math.ceil(maxVal*1.2) || 1;
+  const stepX = plotW / (points.length-1);
+  const coords = points.map((p,i) => [padL + i*stepX, padT + plotH - (p.value/niceMax)*plotH]);
+  const linePath = coords.map((c,i)=> (i===0?'M':'L') + c[0].toFixed(1) + ' ' + c[1].toFixed(1)).join(' ');
+  const areaPath = linePath + ` L ${coords[coords.length-1][0].toFixed(1)} ${padT+plotH} L ${coords[0][0].toFixed(1)} ${padT+plotH} Z`;
+  const dots = coords.map((c,i)=>`<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3" fill="${CHART_COLORS.brand}"><title>${LIB.escapeHtml(points[i].label)}: ${points[i].value}</title></circle>`).join('');
+  // show every Nth label to avoid crowding
+  const step = Math.max(1, Math.ceil(points.length/6));
+  const labels = coords.map((c,i)=> (i%step===0 || i===coords.length-1) ? `<text x="${c[0].toFixed(1)}" y="${H-padB+14}" text-anchor="middle" font-size="9" fill="var(--grey)">${LIB.escapeHtml(points[i].label)}</text>` : '').join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="max-width:${W}px;">
+    <path d="${areaPath}" fill="${CHART_COLORS.brand}" opacity="0.12"/>
+    <path d="${linePath}" fill="none" stroke="${CHART_COLORS.brand}" stroke-width="2"/>
+    ${dots}${labels}
+  </svg>`;
+}
+
 function renderDashboard(area){
-  if(CURRENT.role === 'registrar') return renderRegistrarDashboard(area);
+  if(CURRENT.role === 'library') return renderLibraryDashboard(area);
+  return renderStatsDashboard(area); // Registrar & Director both get the graphs/statistics view
+}
+
+function renderLibraryDashboard(area){
   const db = LIB.getDB();
   const overdue = LIB.allOverdue();
   const pending = LIB.allPending();
@@ -350,7 +448,7 @@ function renderDashboard(area){
   `;
 }
 
-// Builds the gender/age/grade breakdowns the Registrar dashboard shows.
+// Builds the gender/age/grade/section breakdowns the stats dashboard shows.
 // Every count also has an "all" column (male+female+unspecified), so the
 // numbers stay accurate even for records where gender wasn't recorded.
 function computeStudentStats(students){
@@ -361,7 +459,8 @@ function computeStudentStats(students){
     else bucket.unspecified++;
   };
   const totals = { all:0, male:0, female:0, unspecified:0 };
-  const byGrade = {}, byAge = {};
+  const byGrade = {}, byAge = {}, bySection = {};
+  const byDay = {};
   students.forEach(s => {
     bump(totals, s);
     const g = String(s.class||'—').trim() || '—';
@@ -370,19 +469,45 @@ function computeStudentStats(students){
     const a = (s.age===null||s.age===undefined||s.age==='') ? '—' : String(s.age);
     byAge[a] = byAge[a] || { all:0, male:0, female:0, unspecified:0 };
     bump(byAge[a], s);
+    const sec = `${g}${String(s.section||'').trim() || '—'}`;
+    bySection[sec] = bySection[sec] || { all:0, male:0, female:0, unspecified:0, grade:g };
+    bump(bySection[sec], s);
+    const day = (s.createdAt||'').slice(0,10);
+    if(day){ byDay[day] = (byDay[day]||0) + 1; }
   });
   const gradeRows = Object.keys(byGrade).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(g => ({ grade:g, ...byGrade[g] }));
   const ageRows = Object.keys(byAge).sort((a,b)=> a==='—'?1:b==='—'?-1:Number(a)-Number(b)).map(a => ({ age:a, ...byAge[a] }));
-  return { totals, gradeRows, ageRows };
+  const sectionRows = Object.keys(bySection).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(sec => ({ section:sec, ...bySection[sec] }));
+  const trend = Object.keys(byDay).sort().map(d => ({ label: d.slice(5), value: byDay[d] })); // MM-DD
+  return { totals, gradeRows, ageRows, sectionRows, trend };
 }
 
-function renderRegistrarDashboard(area){
+function renderStatsDashboard(area){
   const db = LIB.getDB();
   const stats = computeStudentStats(db.students);
-  const grade910 = stats.gradeRows.filter(r => r.grade === '9' || r.grade === '10');
+  // Ethiopian secondary school grades: 9, 10, 11, 12 highlighted first, then any others found.
+  const KNOWN_GRADES = ['9','10','11','12'];
+  const orderedGrades = [...KNOWN_GRADES.filter(g=>stats.gradeRows.some(r=>r.grade===g)), ...stats.gradeRows.map(r=>r.grade).filter(g=>!KNOWN_GRADES.includes(g))];
+  const gradeSeries = [
+    { name:'Male', color: CHART_COLORS.male, values: orderedGrades.map(g => (stats.gradeRows.find(r=>r.grade===g)||{}).male||0) },
+    { name:'Female', color: CHART_COLORS.female, values: orderedGrades.map(g => (stats.gradeRows.find(r=>r.grade===g)||{}).female||0) }
+  ];
+  const sectionLabels = stats.sectionRows.map(r=>r.section);
+  const sectionSeries = [
+    { name:'Male', color: CHART_COLORS.male, values: stats.sectionRows.map(r=>r.male) },
+    { name:'Female', color: CHART_COLORS.female, values: stats.sectionRows.map(r=>r.female) }
+  ];
+  const ageLabels = stats.ageRows.map(r=>r.age);
+  const ageSeries = [{ name:'Students', color: CHART_COLORS.gold, values: stats.ageRows.map(r=>r.all) }];
+  const genderParts = [
+    { label:'Male', value: stats.totals.male, color: CHART_COLORS.male },
+    { label:'Female', value: stats.totals.female, color: CHART_COLORS.female },
+    { label:'Unspecified', value: stats.totals.unspecified, color: CHART_COLORS.unspecified }
+  ];
+
   area.innerHTML = `
-    <h2>📊 Dashboard — Registrar</h2>
-    <p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">📌 These statistics/tables are best viewed on a larger screen (PC).</p>
+    <h2>📊 Dashboard — Statistics</h2>
+    <p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">📌 Charts and tables are best viewed on a larger screen (PC).</p>
     <div class="stat-row">
       <div class="stat-box"><div class="n">${db.students.length}</div><div class="l">Registered Students</div></div>
       <div class="stat-box"><div class="n">${stats.totals.male}</div><div class="l">Male</div></div>
@@ -390,18 +515,46 @@ function renderRegistrarDashboard(area){
       <div class="stat-box"><div class="n">${stats.totals.all}</div><div class="l">All</div></div>
     </div>
 
-    <div class="section-title"><h2>🎓 Grade 9–10 Breakdown</h2></div>
-    <div class="table-wrap card">
-      <table><thead><tr><th>Grade</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
-      ${grade910.length ? grade910.map(r=>`<tr><td>Grade ${LIB.escapeHtml(r.grade)}</td><td>${r.male}</td><td>${r.female}</td><td>${r.all}</td></tr>`).join('')
-        : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No students registered in Grade 9 or 10 yet</td></tr>`}
-      </tbody></table>
+    <div class="section-title"><h2>⚧ Gender Split</h2></div>
+    <div class="card chart-card" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+      ${svgDonut(genderParts, 176)}
+      ${chartLegend(genderParts)}
     </div>
 
-    <div class="section-title"><h2>🏫 All Grades — Male / Female / All</h2></div>
+    <div class="section-title"><h2>🎓 Grade Comparison — Male vs Female</h2></div>
+    <div class="card chart-card">
+      ${orderedGrades.length ? svgGroupedBars(orderedGrades.map(g=>'Grade '+g), gradeSeries) : `<div class="empty">No students registered yet</div>`}
+      ${orderedGrades.length ? chartLegend([{label:'Male',value:stats.totals.male,color:CHART_COLORS.male},{label:'Female',value:stats.totals.female,color:CHART_COLORS.female}]) : ''}
+    </div>
+
+    <div class="section-title"><h2>🏫 Section Comparison (within &amp; across grades)</h2></div>
+    <div class="card chart-card">
+      ${sectionLabels.length ? svgGroupedBars(sectionLabels, sectionSeries) : `<div class="empty">No students registered yet</div>`}
+      ${sectionLabels.length ? chartLegend([{label:'Male',value:stats.totals.male,color:CHART_COLORS.male},{label:'Female',value:stats.totals.female,color:CHART_COLORS.female}]) : ''}
+    </div>
+
+    <div class="section-title"><h2>🎂 Age Distribution</h2></div>
+    <div class="card chart-card">
+      ${ageLabels.length ? svgGroupedBars(ageLabels, ageSeries) : `<div class="empty">No students registered yet</div>`}
+    </div>
+
+    <div class="section-title"><h2>📈 Registrations Over Time</h2></div>
+    <div class="card chart-card">
+      ${svgLineArea(stats.trend)}
+    </div>
+
+    <div class="section-title"><h2>🏫 Full Breakdown by Grade</h2></div>
     <div class="table-wrap card">
       <table><thead><tr><th>Grade</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
       ${stats.gradeRows.length ? stats.gradeRows.map(r=>`<tr><td>Grade ${LIB.escapeHtml(r.grade)}</td><td>${r.male}</td><td>${r.female}</td><td>${r.all}</td></tr>`).join('')
+        : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No students registered yet</td></tr>`}
+      </tbody></table>
+    </div>
+
+    <div class="section-title"><h2>🏫 Full Breakdown by Section</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Grade &amp; Section</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
+      ${stats.sectionRows.length ? stats.sectionRows.map(r=>`<tr><td>${LIB.escapeHtml(r.section)}</td><td>${r.male}</td><td>${r.female}</td><td>${r.all}</td></tr>`).join('')
         : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No students registered yet</td></tr>`}
       </tbody></table>
     </div>
@@ -454,7 +607,7 @@ function renderStudents(area){
         <td>${inHand}</td>
         <td class="row-actions">
           <button class="btn sm outline" data-view-stu="${s.id}">View</button>
-          ${CURRENT.role==='registrar' ? '' : `<button class="btn sm outline" data-reset-stu="${s.id}">Reset PIN</button>`}
+          <button class="btn sm outline" data-reset-stu="${s.id}">Reset PIN</button>
         </td>
       </tr>`;
     }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:16px;">No students found</td></tr>`;
@@ -524,46 +677,30 @@ function addStudentModal(){
 function viewStudentModal(id){
   const s = LIB.getDB().students.find(x=>x.id===id);
   const reqs = LIB.myRequests(id);
-  // Registrar can register & view students, but not edit or delete/withdraw
-  // existing records — that stays with Library Staff/Director.
-  const readOnly = CURRENT.role === 'registrar';
+  // Registrar and Library Staff can both fully manage student records
+  // (register, edit, delete, photo) — Director has no access to Students at all.
+  const readOnly = false;
   openModal(`
     <div class="modal-box">
       <h3>${LIB.escapeHtml(s.name)}</h3>
-      ${readOnly ? `<p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">🔒 Registrar accounts can view students but can't edit or remove them.</p>` : ''}
       <div class="avatar-row" style="margin-bottom:12px;">
         <div id="stuPhotoBig" style="cursor:${s.photo?'zoom-in':'default'};">${avatarHtml(s,'lg')}</div>
-        ${readOnly ? '' : `<label class="btn sm outline avatar-upload">Change Photo
+        <label class="btn sm outline avatar-upload">Change Photo
           <input type="file" accept="image/*" id="stuPhotoInput">
         </label>
-        ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}`}
+        ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}
       </div>
       ${s.photo?'<p class="hint" style="color:var(--grey);font-size:11px;margin:-6px 0 12px;">Tap the photo to view it full-size.</p>':''}
-      <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}" ${readOnly?'disabled':''}></div>
+      <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}"></div>
       <div class="grid cols-2">
-        <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}" ${readOnly?'disabled':''}></div>
-        <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}" ${readOnly?'disabled':''}></div>
+        <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
+        <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}"></div>
       </div>
-      ${readOnly ? `
-      <div class="grid cols-2">
-        <div class="field"><label>Gender</label><div>${s.gender==='male'?'Male':s.gender==='female'?'Female':'—'}</div></div>
-        <div class="field"><label>Age</label><div>${s.age||'—'}</div></div>
-      </div>
-      <div class="field"><label>Birth Date (Ethiopian Calendar)</label><div>${LIB.escapeHtml(LIB.fmtEthDate(s.ecBirth))}</div></div>
-      ` : `
       <div class="grid cols-2">
         ${genderFieldHtml('stu', s.gender)}
       </div>
       ${ecBirthFieldHtml('stu', s.ecBirth)}
-      `}
-      <div class="field"><label>Phone Number</label><input id="stuPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX" value="${LIB.escapeAttr(s.phone||'')}" ${readOnly?'disabled':''}></div>
-      ${readOnly ? `
-      <div class="field"><label>Residence</label><div>${LIB.escapeHtml(LIB.fmtResidency(s.residency))}</div></div>
-      <div class="grid cols-2">
-        <div class="field"><label>Family / Guardian Name</label><div>${LIB.escapeHtml(s.guardianName||'—')}</div></div>
-        <div class="field"><label>Family Number</label><div>${LIB.escapeHtml(s.guardianPhone||'—')}</div></div>
-      </div>
-      ` : `
+      <div class="field"><label>Phone Number</label><input id="stuPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX" value="${LIB.escapeAttr(s.phone||'')}"></div>
       <div class="field"><label>Residence (የመኖሪያ አድራሻ)</label>
         <div class="grid cols-3">
           <input id="stuResTown" placeholder="Town / ከተማ" value="${LIB.escapeAttr(s.residency&&s.residency.town||'')}">
@@ -575,8 +712,7 @@ function viewStudentModal(id){
         <div class="field"><label>Family / Guardian Name</label><input id="stuGuardianName" value="${LIB.escapeAttr(s.guardianName||'')}"></div>
         <div class="field"><label>Family Number</label><input id="stuGuardianPhone" inputmode="tel" value="${LIB.escapeAttr(s.guardianPhone||'')}"></div>
       </div>
-      `}
-      <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric" ${readOnly?'disabled':''}></div>
+      <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric"></div>
       <div class="grid cols-2">
         <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
         <div class="field"><label>Current PIN</label><div style="font-weight:800;letter-spacing:.15em;">${s.pin ? LIB.escapeHtml(s.pin) : '— not set yet —'}</div></div>
@@ -589,14 +725,13 @@ function viewStudentModal(id){
         }).join('<br>') : 'No history'}</div>
       </div>
       <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
-        ${readOnly ? '' : `<button class="btn danger" id="stuRemoveBtn">🗑 Withdraw / Remove Student</button>`}
+        <button class="btn danger" id="stuRemoveBtn">🗑 Withdraw / Remove Student</button>
         <button class="btn outline" onclick="closeModal()">Cancel</button>
-        ${readOnly ? '' : `<button class="btn primary" id="stuSaveBtn">Save Changes</button>`}
+        <button class="btn primary" id="stuSaveBtn">Save Changes</button>
       </div>
     </div>`);
   const bigPhoto = document.getElementById('stuPhotoBig');
   if(bigPhoto && s.photo) bigPhoto.onclick = () => showFullPhoto(s.photo, s.name);
-  if(readOnly) return; // nothing else to wire up in read-only mode
   wireEcBirthField('stu', s.ecBirth);
   document.getElementById('stuSaveBtn').onclick = () => {
     const errBox = document.getElementById('stuEditErr');

@@ -397,6 +397,10 @@ th{ font-size:11.5px; text-transform:uppercase; letter-spacing:.02em; color:var(
 .stat-box{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; }
 .stat-box .n{ font-size:22px; font-weight:800;}
 .stat-box .l{ font-size:11.5px; color:var(--grey); font-weight:600;}
+.chart-card{ margin-bottom:16px; overflow-x:auto; }
+.chart-legend{ display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:8px; }
+.chart-legend-item{ font-size:12px; color:var(--black); display:inline-flex; align-items:center; gap:6px; }
+.chart-legend-item i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
 
 footer.watermark{ text-align:center; font-size:11px; color:#9c9c9c; padding:22px 10px 100px;}
 footer.watermark a{ color:var(--red); font-weight:700; text-decoration:none;}
