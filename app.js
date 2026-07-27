@@ -90,6 +90,11 @@ const LIB = (() => {
     const mo = ETH_MONTHS.find(m => m.n === Number(ec.month));
     return `${ec.day} ${mo?mo.am:ec.month} ${ec.year}`;
   }
+  function fmtResidency(r){
+    if(!r) return "—";
+    const parts = [r.town, r.kebele ? `Kebele ${r.kebele}` : "", r.sefer].filter(Boolean);
+    return parts.length ? parts.join(", ") : "—";
+  }
 
   // loose fuzzy match: normalizes spaces/case and checks substring OR token-subset match,
   // so admin can find "Abebe Kebede" by typing "abebe", "kebede", or minor variants —
@@ -377,6 +382,8 @@ const LIB = (() => {
           id: uid("std_"), fan: "1002003004005006",
           name: "Abebe Kebede", class: "10", section: "A",
           gender: "male", ecBirth: { year: 2002, month: 5, day: 12 }, age: computeAgeFromEC({ year: 2002, month: 5, day: 12 }),
+          residency: { town: "Sheno", kebele: "02", sefer: "Arada" },
+          guardianName: "Kebede Alemu", guardianPhone: "0911223344",
           activated: true, pin: "1234", photo: "",
           createdAt: now
         },
@@ -384,6 +391,8 @@ const LIB = (() => {
           id: uid("std_"), fan: "2003004005006007",
           name: "Selam Tesfaye", class: "9", section: "B",
           gender: "female", ecBirth: { year: 2003, month: 2, day: 20 }, age: computeAgeFromEC({ year: 2003, month: 2, day: 20 }),
+          residency: { town: "Sheno", kebele: "01", sefer: "Mekane Yesus" },
+          guardianName: "Tesfaye Bekele", guardianPhone: "0922334455",
           activated: false, pin: "", photo: "",
           createdAt: now
         }
@@ -425,7 +434,7 @@ const LIB = (() => {
   /* ---------------- auth: students ---------------- */
   // Admin pre-registers the student's official record with just a 16-digit FAN
   // (no FIN needed — kept out of the flow entirely per school policy).
-  function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone}){
+  function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone, residency, guardianName, guardianPhone}){
     fan = digitsOnly(fan);
     if(!name || !name.trim()) return { ok:false, error: "ሙሉ ስም ያስፈልጋል" };
     if(fan.length !== 16) return { ok:false, error: "FAN 16 ዲጂት መሆን አለበት" };
@@ -433,7 +442,10 @@ const LIB = (() => {
     if(db.students.some(s => s.fan === fan)) return { ok:false, error: "ይህ FAN ቀድሞ ተመዝግቧል" };
     const student = { id: uid("std_"), fan, name: name.trim(), class: klass, section,
       gender: gender||"", ecBirth: ecBirth||null, age: ecBirth ? computeAgeFromEC(ecBirth) : null,
-      phone: phone||"", activated:false, pin:"", photo:"", createdAt: todayISO() };
+      phone: phone||"",
+      residency: (residency && typeof residency==='object') ? { town: residency.town||"", kebele: residency.kebele||"", sefer: residency.sefer||"" } : { town:"", kebele:"", sefer:"" },
+      guardianName: guardianName||"", guardianPhone: guardianPhone||"",
+      activated:false, pin:"", photo:"", createdAt: todayISO() };
     mutate(db => db.students.push(student));
     return { ok:true, student };
   }
@@ -612,7 +624,12 @@ const LIB = (() => {
       lost: copies.filter(c=>c.status==='lost').length
     };
   }
+  // Books, Requests & Loans, and Reservations are Library Staff's exclusive
+  // job — enforced here too (not just hidden in the admin UI) so a Registrar
+  // or Director account can't do it by calling these directly from the console.
+  function isLibrarian(){ const a = currentStaff(); return !!a && a.role === 'library'; }
   function addBook(book){
+    if(!isLibrarian()) return { ok:false, error:"Only Library Staff can add books." };
     const rec = { id: uid("bk_"), title:book.title, author:book.author, category:book.category,
       quality:Number(book.quality)||3, condition:book.condition||"", coverUrl:book.coverUrl||"",
       copies: makeCopies(book.totalCopies), addedAt: todayISO() };
@@ -620,6 +637,7 @@ const LIB = (() => {
     return rec;
   }
   function editBook(id, patch){
+    if(!isLibrarian()) return;
     mutate(db => {
       const b = db.books.find(x => x.id === id);
       if(!b) return;
@@ -641,15 +659,17 @@ const LIB = (() => {
     });
   }
   function setCopyStatus(bookId, copyId, status){
+    if(!isLibrarian()) return;
     mutate(db => {
       const b = db.books.find(x=>x.id===bookId); if(!b) return;
       const c = b.copies.find(x=>x.id===copyId); if(c) c.status = status;
     });
   }
   function addCopies(bookId, n){
+    if(!isLibrarian()) return;
     mutate(db => { const b = db.books.find(x=>x.id===bookId); if(b) b.copies = b.copies.concat(makeCopies(n)); });
   }
-  function removeBook(id){ mutate(db => { db.books = db.books.filter(b => b.id !== id); }); }
+  function removeBook(id){ if(!isLibrarian()) return; mutate(db => { db.books = db.books.filter(b => b.id !== id); }); }
   // Search across title, author, AND category — a partial title, a partial author
   // name, or a category keyword all work.
   function searchBooks({query, category} = {}){
@@ -692,6 +712,7 @@ const LIB = (() => {
     return { ok:true, request: reqRec };
   }
   function approveRequest(requestId, staffName, dueDays){
+    if(!isLibrarian()) return;
     const db = getDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "pending") return;
@@ -702,6 +723,7 @@ const LIB = (() => {
     });
   }
   function rejectRequest(requestId){
+    if(!isLibrarian()) return;
     const db = getDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "pending") return;
@@ -714,6 +736,7 @@ const LIB = (() => {
     });
   }
   function markReturned(requestId, damaged){
+    if(!isLibrarian()) return;
     const db = getDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "borrowed") return;
@@ -726,6 +749,7 @@ const LIB = (() => {
     });
   }
   function adjustDueDate(requestId, newDueIso){
+    if(!isLibrarian()) return;
     mutate(db => {
       const r = db.requests.find(x => x.id === requestId);
       if(r) r.dueDate = newDueIso;
@@ -738,7 +762,7 @@ const LIB = (() => {
     mutate(db => db.reservations.push(rec));
     return { ok:true, reservation: rec };
   }
-  function cancelReservation(id){ mutate(db => { db.reservations = db.reservations.filter(r => r.id !== id); }); }
+  function cancelReservation(id){ if(!isLibrarian()) return; mutate(db => { db.reservations = db.reservations.filter(r => r.id !== id); }); }
 
   function myRequests(studentId){ return getDB().requests.filter(r => r.studentId === studentId); }
   function myReservations(studentId){ return getDB().reservations.filter(r => r.studentId === studentId); }
@@ -879,7 +903,7 @@ const LIB = (() => {
     CATEGORIES, CATEGORY_LABEL, COPY_STATUS_LABEL, DEFAULT_DUE_DAYS,
     uid, todayISO, addDays, fmtDate, fmtDateTime, isOverdue, daysLeft, escapeHtml, escapeAttr, digitsOnly, stars, fuzzyMatch,
     fileToResizedDataURL, fileToDataURL,
-    ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate,
+    ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate, fmtResidency,
     getDB, mutate, ready, getSettings, updateSettings, applyTheme,
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,

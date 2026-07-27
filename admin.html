@@ -198,6 +198,14 @@ function bootApp(){
       document.querySelector(`.side-link[data-view="${v}"]`).classList.add('hidden');
     });
   }
+  // Director is deliberately narrow: Announcements + Dashboard, nothing else.
+  // Books/Requests & Loans/Reservations are Library Staff's job exclusively;
+  // Students is Registrar/Library's job.
+  if(CURRENT.role === 'director'){
+    ['Students','Books','Requests','Reservations'].forEach(v => {
+      document.querySelector(`.side-link[data-view="${v}"]`).classList.add('hidden');
+    });
+  }
   document.querySelectorAll('.side-link[data-view]').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.side-link[data-view]').forEach(b=>b.classList.remove('active'));
@@ -263,13 +271,19 @@ function genderFieldHtml(prefix, gender){
   </div>`;
 }
 function ecBirthFieldHtml(prefix, ec){
+  const curYear = LIB.ethToday().year;
+  const years = [];
+  for(let y = curYear; y >= curYear - 90; y--) years.push(y); // covers students down to newborn staff/records up to 90 yrs back
   return `<div class="field"><label>Birth Date (የልደት ቀን — Ethiopian Calendar)</label>
     <div class="grid cols-3">
       <select id="${prefix}EcDay" aria-label="Day"></select>
       <select id="${prefix}EcMonth" aria-label="Month">
         ${LIB.ETH_MONTHS.map(m=>`<option value="${m.n}" ${ec&&Number(ec.month)===m.n?'selected':''}>${m.am}</option>`).join('')}
       </select>
-      <input id="${prefix}EcYear" type="number" placeholder="ዓ.ም / Year" value="${ec&&ec.year?ec.year:''}">
+      <select id="${prefix}EcYear" aria-label="Year">
+        <option value="">ዓ.ም / Year</option>
+        ${years.map(y=>`<option value="${y}" ${ec&&Number(ec.year)===y?'selected':''}>${y}</option>`).join('')}
+      </select>
     </div>
   </div>`;
 }
@@ -278,17 +292,17 @@ function ecBirthFieldHtml(prefix, ec){
 function wireEcBirthField(prefix, ec){
   const daySel = document.getElementById(prefix+'EcDay');
   const monthSel = document.getElementById(prefix+'EcMonth');
-  const yearInp = document.getElementById(prefix+'EcYear');
+  const yearSel = document.getElementById(prefix+'EcYear');
   const refresh = () => {
     const month = Number(monthSel.value) || 1;
-    const year = Number(yearInp.value) || LIB.ethToday().year;
+    const year = Number(yearSel.value) || LIB.ethToday().year;
     const days = LIB.daysInEthMonth(year, month);
     const cur = Number(daySel.value) || (ec && ec.day) || 1;
     daySel.innerHTML = Array.from({length:days}, (_,i)=>i+1)
       .map(d=>`<option value="${d}" ${d===cur?'selected':''}>${d}</option>`).join('');
   };
   monthSel.onchange = refresh;
-  yearInp.oninput = refresh;
+  yearSel.onchange = refresh;
   refresh();
 }
 function readEcBirthField(prefix){
@@ -404,6 +418,7 @@ function renderRegistrarDashboard(area){
 
 /* ================= STUDENTS ================= */
 function renderStudents(area){
+  if(CURRENT.role === 'director'){ area.innerHTML = `<div class="empty">🔒 Directors don't have access to Students — that's handled by the Registrar and Library Staff.</div>`; return; }
   area.innerHTML = `
     <h2>🎓 Students</h2>
     <div class="search-bar">
@@ -465,6 +480,17 @@ function addStudentModal(){
       ${genderFieldHtml('m', '')}
       ${ecBirthFieldHtml('m', null)}
       <div class="field"><label>Phone Number</label><input id="mPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
+      <div class="field"><label>Residence (የመኖሪያ አድራሻ)</label>
+        <div class="grid cols-3">
+          <input id="mResTown" placeholder="Town / ከተማ">
+          <input id="mResKebele" placeholder="Kebele / ቀበሌ">
+          <input id="mResSefer" placeholder="Sefer / ሰፈር">
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Family / Guardian Name</label><input id="mGuardianName" placeholder="e.g. father/mother/guardian name"></div>
+        <div class="field"><label>Family Number</label><input id="mGuardianPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
+      </div>
       <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16"></div>
       <div id="mErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
@@ -481,6 +507,13 @@ function addStudentModal(){
       gender: document.getElementById('mGender').value,
       ecBirth: readEcBirthField('m'),
       phone: document.getElementById('mPhone').value,
+      residency: {
+        town: document.getElementById('mResTown').value.trim(),
+        kebele: document.getElementById('mResKebele').value.trim(),
+        sefer: document.getElementById('mResSefer').value.trim()
+      },
+      guardianName: document.getElementById('mGuardianName').value,
+      guardianPhone: document.getElementById('mGuardianPhone').value,
       fan: document.getElementById('mFan').value
     });
     if(!res.ok){ document.getElementById('mErr').textContent = res.error; return; }
@@ -524,6 +557,25 @@ function viewStudentModal(id){
       ${ecBirthFieldHtml('stu', s.ecBirth)}
       `}
       <div class="field"><label>Phone Number</label><input id="stuPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX" value="${LIB.escapeAttr(s.phone||'')}" ${readOnly?'disabled':''}></div>
+      ${readOnly ? `
+      <div class="field"><label>Residence</label><div>${LIB.escapeHtml(LIB.fmtResidency(s.residency))}</div></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Family / Guardian Name</label><div>${LIB.escapeHtml(s.guardianName||'—')}</div></div>
+        <div class="field"><label>Family Number</label><div>${LIB.escapeHtml(s.guardianPhone||'—')}</div></div>
+      </div>
+      ` : `
+      <div class="field"><label>Residence (የመኖሪያ አድራሻ)</label>
+        <div class="grid cols-3">
+          <input id="stuResTown" placeholder="Town / ከተማ" value="${LIB.escapeAttr(s.residency&&s.residency.town||'')}">
+          <input id="stuResKebele" placeholder="Kebele / ቀበሌ" value="${LIB.escapeAttr(s.residency&&s.residency.kebele||'')}">
+          <input id="stuResSefer" placeholder="Sefer / ሰፈር" value="${LIB.escapeAttr(s.residency&&s.residency.sefer||'')}">
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Family / Guardian Name</label><input id="stuGuardianName" value="${LIB.escapeAttr(s.guardianName||'')}"></div>
+        <div class="field"><label>Family Number</label><input id="stuGuardianPhone" inputmode="tel" value="${LIB.escapeAttr(s.guardianPhone||'')}"></div>
+      </div>
+      `}
       <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric" ${readOnly?'disabled':''}></div>
       <div class="grid cols-2">
         <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
@@ -558,7 +610,14 @@ function viewStudentModal(id){
     const patch = {
       name, class: document.getElementById('stuClass').value, section: document.getElementById('stuSection').value,
       gender: document.getElementById('stuGender').value, ecBirth, age: ecBirth ? LIB.computeAgeFromEC(ecBirth) : s.age,
-      phone: document.getElementById('stuPhone').value.trim(), fan: newFan
+      phone: document.getElementById('stuPhone').value.trim(), fan: newFan,
+      residency: {
+        town: document.getElementById('stuResTown').value.trim(),
+        kebele: document.getElementById('stuResKebele').value.trim(),
+        sefer: document.getElementById('stuResSefer').value.trim()
+      },
+      guardianName: document.getElementById('stuGuardianName').value.trim(),
+      guardianPhone: document.getElementById('stuGuardianPhone').value.trim()
     };
     // Ask before applying — saving used to happen instantly on click, which
     // is an easy way to overwrite a record by accident.
@@ -631,7 +690,7 @@ function resetPinModal(id){
 
 /* ================= BOOKS ================= */
 function renderBooks(area){
-  if(CURRENT.role === 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar accounts don't have access to Books.</div>`; return; }
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Books is managed by Library Staff only.</div>`; return; }
   area.innerHTML = `
     <h2>📚 Books</h2>
     <div class="search-bar">
@@ -737,7 +796,7 @@ function bookModal(id){
 
 /* ================= REQUESTS & LOANS ================= */
 function renderRequests(area){
-  if(CURRENT.role === 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar accounts don't have access to Requests & Loans.</div>`; return; }
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Requests & Loans is managed by Library Staff only.</div>`; return; }
   const db = LIB.getDB();
   const pending = LIB.allPending();
   const borrowed = LIB.allBorrowed();
@@ -810,7 +869,7 @@ function adjustDueModal(reqId){
 
 /* ================= RESERVATIONS ================= */
 function renderReservations(area){
-  if(CURRENT.role === 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar accounts don't have access to Reservations.</div>`; return; }
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Reservations is managed by Library Staff only.</div>`; return; }
   const db = LIB.getDB();
   area.innerHTML = `<h2>⏳ Reservations / Waitlist</h2>
     <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Reserved On</th><th></th></tr></thead><tbody>
