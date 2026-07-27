@@ -36,7 +36,7 @@
     <div class="auth-card-inner">
       <div class="auth-logo">
         <div class="logo-badge" id="logoBadgeAuth"><img src="school-logo.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
-        <div class="brand-name" id="brandNameAuth">Admin Console<small>Director & Library Staff</small></div>
+        <div class="brand-name" id="brandNameAuth">Admin Console<small>Director · Registrar · Library Staff</small></div>
       </div>
       <div id="authMsg" aria-live="polite"></div>
       <form id="loginForm" class="hidden">
@@ -84,6 +84,7 @@
     <div class="tibeb-strip textured thin" style="margin-bottom:8px;"></div>
     <button class="side-link active" data-view="Dashboard">📊 Dashboard</button>
     <button class="side-link" data-view="Students">🎓 Students</button>
+    <button class="side-link" data-view="Registrations" id="navRegistrations">📝 Registrations<span class="side-badge hidden" id="regNavBadge"></span></button>
     <button class="side-link" data-view="Books">📚 Books</button>
     <button class="side-link" data-view="Requests">📥 Requests & Loans</button>
     <button class="side-link" data-view="Reservations">⏳ Reservations</button>
@@ -141,6 +142,7 @@ LIB.applyTheme();
 })();
 
 let CURRENT = null; // staff record
+const ROLE_LABEL = { director: "Director", registrar: "Registrar", library: "Library Staff" };
 
 document.getElementById('pwToggle').onclick = () => {
   const inp = document.getElementById('loginPw');
@@ -179,8 +181,12 @@ function bootApp(){
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('appShellFooter').style.display = 'block';
-  document.getElementById('roleTag').textContent = `${CURRENT.name} — ${CURRENT.role==='director'?'Director':'Library Staff'}`;
+  document.getElementById('roleTag').textContent = `${CURRENT.name} — ${ROLE_LABEL[CURRENT.role]||CURRENT.role}`;
   if(CURRENT.role !== 'director') document.getElementById('navStaff').classList.add('hidden');
+  // Only the Director and Registrar work with registration submissions — Library
+  // staff never sees applicant data, so the nav item is hidden for that role.
+  if(CURRENT.role === 'library') document.getElementById('navRegistrations').classList.add('hidden');
+  refreshRegBadge();
   document.querySelectorAll('.side-link[data-view]').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.side-link[data-view]').forEach(b=>b.classList.remove('active'));
@@ -189,6 +195,15 @@ function bootApp(){
     };
   });
   render('Dashboard');
+}
+// Pending-registration count is safe to show to any staff role — it's just a
+// number, never applicant details (those stay Registrar-only).
+function refreshRegBadge(){
+  const n = LIB.countPendingRegistrations();
+  const badge = document.getElementById('regNavBadge');
+  if(!badge) return;
+  badge.textContent = n;
+  badge.classList.toggle('hidden', n === 0);
 }
 
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
@@ -199,6 +214,7 @@ function render(view){
   const area = document.getElementById('mainArea');
   if(view==='Dashboard') return renderDashboard(area);
   if(view==='Students') return renderStudents(area);
+  if(view==='Registrations') return renderRegistrations(area);
   if(view==='Books') return renderBooks(area);
   if(view==='Requests') return renderRequests(area);
   if(view==='Reservations') return renderReservations(area);
@@ -220,6 +236,7 @@ function renderDashboard(area){
   const overdue = LIB.allOverdue();
   const pending = LIB.allPending();
   const borrowed = LIB.allBorrowed();
+  const pendingRegs = LIB.countPendingRegistrations();
   area.innerHTML = `
     <h2>📊 Dashboard</h2>
     <div class="stat-row">
@@ -230,6 +247,7 @@ function renderDashboard(area){
     </div>
 
     ${pending.length ? `<div class="msg warn" style="padding:12px;border-radius:10px;margin-bottom:14px;">📥 ${pending.length} pending borrow request(s) waiting for approval — see "Requests & Loans".</div>` : ''}
+    ${(pendingRegs && CURRENT.role !== 'library') ? `<div class="msg warn" style="padding:12px;border-radius:10px;margin-bottom:14px;">📝 ${pendingRegs} new student registration(s) waiting for review — see "Registrations".</div>` : ''}
 
     <div class="section-title"><h2>⚠ Overdue students</h2></div>
     <div class="table-wrap card">
@@ -245,15 +263,18 @@ function renderDashboard(area){
 
 /* ================= STUDENTS ================= */
 function renderStudents(area){
+  const canEdit = LIB.canEditStudents();   // registrar only
+  const canPin = LIB.canResetPin();        // director or registrar
   area.innerHTML = `
     <h2>🎓 Students</h2>
+    ${!canEdit ? `<div class="msg" style="background:var(--off);color:var(--grey);padding:9px 12px;border-radius:9px;margin-bottom:12px;">🔒 Viewing only — student records can be added, edited, or withdrawn by the Registrar.</div>` : ''}
     <div class="search-bar">
       <input id="stuSearch" placeholder="Search by any part of the name, or FAN..." aria-label="Search students">
       <select id="stuClassFilter" aria-label="Filter by class"><option value="all">ሁሉም ክፍል / All classes</option></select>
-      <button class="btn primary" id="addStuBtn">+ Register Student</button>
+      ${canEdit ? `<button class="btn primary" id="addStuBtn">+ Register Student</button>` : ''}
     </div>
     <div class="table-wrap card"><table><thead>
-      <tr><th></th><th>Name</th><th>Class</th><th>FAN</th><th>Status</th><th>In Hand</th><th></th></tr>
+      <tr><th></th><th>Name</th><th>Class</th><th>Dept</th><th>FAN</th><th>Status</th><th>In Hand</th><th></th></tr>
     </thead><tbody id="stuTbody"></tbody></table></div>
   `;
   const classSel = document.getElementById('stuClassFilter');
@@ -275,22 +296,34 @@ function renderStudents(area){
         <td>${avatarHtml(s)}</td>
         <td><b>${LIB.escapeHtml(s.name)}</b></td>
         <td>${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''}</td>
+        <td>${s.stream ? `<span class="badge grey">${LIB.escapeHtml(LIB.STREAM_LABEL[s.stream]||s.stream)}</span>` : '—'}</td>
         <td>${LIB.escapeHtml(s.fan)}</td>
         <td>${s.activated?'<span class="badge ok">Active</span>':'<span class="badge grey">Not Activated</span>'}</td>
         <td>${inHand}</td>
         <td class="row-actions">
           <button class="btn sm outline" data-view-stu="${s.id}">View</button>
-          <button class="btn sm outline" data-reset-stu="${s.id}">Reset PIN</button>
+          ${canPin ? `<button class="btn sm outline" data-reset-stu="${s.id}">Reset PIN</button>` : ''}
         </td>
       </tr>`;
-    }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:16px;">No students found</td></tr>`;
+    }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--grey);padding:16px;">No students found</td></tr>`;
     document.querySelectorAll('[data-view-stu]').forEach(b=>b.onclick=()=>viewStudentModal(b.dataset.viewStu));
     document.querySelectorAll('[data-reset-stu]').forEach(b=>b.onclick=()=>resetPinModal(b.dataset.resetStu));
   };
   document.getElementById('stuSearch').oninput = draw;
   classSel.onchange = draw;
-  document.getElementById('addStuBtn').onclick = addStudentModal;
+  if(canEdit) document.getElementById('addStuBtn').onclick = addStudentModal;
   draw();
+}
+
+function streamFieldHtml(selectedClass, selectedStream){
+  return `<div class="field" id="mStreamWrap" style="${(selectedClass==='11'||selectedClass==='12')?'':'display:none;'}">
+    <label>Department</label>
+    <select id="mStream">
+      <option value="">— Select —</option>
+      <option value="natural" ${selectedStream==='natural'?'selected':''}>Natural Science</option>
+      <option value="social" ${selectedStream==='social'?'selected':''}>Social Science</option>
+    </select>
+  </div>`;
 }
 
 function addStudentModal(){
@@ -300,9 +333,12 @@ function addStudentModal(){
       <p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">Only the 16-digit FAN is required — no FIN needed.</p>
       <div class="field"><label>Full Name</label><input id="mName"></div>
       <div class="grid cols-2">
-        <div class="field"><label>Class</label><input id="mClass" placeholder="e.g. 10"></div>
+        <div class="field"><label>Class</label>
+          <select id="mClass"><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select>
+        </div>
         <div class="field"><label>Section</label><input id="mSection" placeholder="e.g. A"></div>
       </div>
+      ${streamFieldHtml('', '')}
       <div class="field"><label>Age</label><input id="mAge" type="number"></div>
       <div class="field"><label>Phone Number</label><input id="mPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
       <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16"></div>
@@ -312,11 +348,15 @@ function addStudentModal(){
         <button class="btn primary" id="mSave">Register</button>
       </div>
     </div>`);
+  const classSel = document.getElementById('mClass');
+  const streamWrap = document.getElementById('mStreamWrap');
+  classSel.onchange = () => { streamWrap.style.display = (classSel.value==='11'||classSel.value==='12') ? '' : 'none'; };
   document.getElementById('mSave').onclick = () => {
     const res = LIB.adminRegisterStudent({
       name: document.getElementById('mName').value,
-      klass: document.getElementById('mClass').value,
+      klass: classSel.value,
       section: document.getElementById('mSection').value,
+      stream: document.getElementById('mStream').value,
       age: document.getElementById('mAge').value,
       phone: document.getElementById('mPhone').value,
       fan: document.getElementById('mFan').value
@@ -327,8 +367,42 @@ function addStudentModal(){
 }
 
 function viewStudentModal(id){
-  const s = LIB.getDB().students.find(x=>x.id===id);
+  const raw = LIB.getDB().students.find(x=>x.id===id);
+  const canEdit = LIB.canEditStudents();
+  const s = canEdit ? raw : LIB.studentView(raw); // non-Registrar viewers never receive the sensitive fields at all
   const reqs = LIB.myRequests(id);
+  const historyHtml = `<div class="field"><label>Borrow history</label>
+        <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
+          const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
+          return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
+        }).join('<br>') : 'No history'}</div>
+      </div>`;
+
+  if(!canEdit){
+    // Read-only card for Director / Library Staff — no edit, no withdraw, no
+    // current-PIN display. Sensitive registration fields (DOB, address, guardian
+    // contact, documents) were already stripped by LIB.studentView() above.
+    openModal(`
+      <div class="modal-box">
+        <h3>${LIB.escapeHtml(s.name)}</h3>
+        <div class="avatar-row" style="margin-bottom:12px;">${avatarHtml(s,'lg')}</div>
+        <div class="grid cols-2">
+          <div class="field"><label>Class</label><div>${LIB.escapeHtml(String(s.class||''))} ${s.section?('/'+LIB.escapeHtml(String(s.section))):''}</div></div>
+          <div class="field"><label>Department</label><div>${s.stream ? LIB.escapeHtml(LIB.STREAM_LABEL[s.stream]||s.stream) : '—'}</div></div>
+        </div>
+        <div class="grid cols-2">
+          <div class="field"><label>Age</label><div>${s.age||'—'}</div></div>
+          <div class="field"><label>Phone</label><div>${LIB.escapeHtml(s.phone||'—')}</div></div>
+        </div>
+        <div class="field"><label>FAN</label><div>${LIB.escapeHtml(s.fan)}</div></div>
+        <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
+        ${historyHtml}
+        <p class="hint" style="color:var(--grey);font-size:11px;">🔒 Full profile, contact & guardian details are visible to the Registrar only.</p>
+        <div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>
+      </div>`);
+    return;
+  }
+
   openModal(`
     <div class="modal-box">
       <h3>${LIB.escapeHtml(s.name)}</h3>
@@ -342,25 +416,33 @@ function viewStudentModal(id){
       ${s.photo?'<p class="hint" style="color:var(--grey);font-size:11px;margin:-6px 0 12px;">Tap the photo to view it full-size.</p>':''}
       <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}"></div>
       <div class="grid cols-2">
-        <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
+        <div class="field"><label>Class</label>
+          <select id="stuClass">${["9","10","11","12"].map(c=>`<option value="${c}" ${String(s.class)===c?'selected':''}>${c}</option>`).join('')}</select>
+        </div>
         <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}"></div>
       </div>
+      ${streamFieldHtml(String(s.class||''), s.stream||'')}
       <div class="grid cols-2">
         <div class="field"><label>Age</label><input id="stuAge" type="number" value="${s.age||''}"></div>
         <div class="field"><label>Phone Number</label><input id="stuPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX" value="${LIB.escapeAttr(s.phone||'')}"></div>
       </div>
+      <div class="field"><label>Date of Birth</label><input id="stuDob" type="date" value="${LIB.escapeAttr(s.dob||'')}"></div>
+      <div class="field"><label>Gender</label>
+        <select id="stuGender"><option value="" ${!s.gender?'selected':''}>—</option><option value="female" ${s.gender==='female'?'selected':''}>Female</option><option value="male" ${s.gender==='male'?'selected':''}>Male</option></select>
+      </div>
+      <div class="field"><label>Address</label><input id="stuAddress" value="${LIB.escapeAttr(s.address||'')}"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Guardian Name</label><input id="stuGName" value="${LIB.escapeAttr(s.guardianName||'')}"></div>
+        <div class="field"><label>Guardian Phone</label><input id="stuGPhone" inputmode="tel" value="${LIB.escapeAttr(s.guardianPhone||'')}"></div>
+      </div>
+      <div class="field"><label>Guardian Email</label><input id="stuGEmail" type="email" value="${LIB.escapeAttr(s.guardianEmail||'')}"></div>
       <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric"></div>
       <div class="grid cols-2">
         <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
         <div class="field"><label>Current PIN</label><div style="font-weight:800;letter-spacing:.15em;">${s.pin ? LIB.escapeHtml(s.pin) : '— not set yet —'}</div></div>
       </div>
       <div id="stuEditErr" style="color:var(--danger);font-size:12.5px;"></div>
-      <div class="field"><label>Borrow history</label>
-        <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
-          const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
-          return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
-        }).join('<br>') : 'No history'}</div>
-      </div>
+      ${historyHtml}
       <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
         <button class="btn danger" id="stuRemoveBtn">🗑 Withdraw / Remove Student</button>
         <button class="btn outline" onclick="closeModal()">Cancel</button>
@@ -369,23 +451,34 @@ function viewStudentModal(id){
     </div>`);
   const bigPhoto = document.getElementById('stuPhotoBig');
   if(bigPhoto && s.photo) bigPhoto.onclick = () => showFullPhoto(s.photo, s.name);
+  const stuClassSel = document.getElementById('stuClass');
+  const stuStreamWrap = document.getElementById('mStreamWrap');
+  stuClassSel.onchange = () => { stuStreamWrap.style.display = (stuClassSel.value==='11'||stuClassSel.value==='12') ? '' : 'none'; };
   document.getElementById('stuSaveBtn').onclick = () => {
     const errBox = document.getElementById('stuEditErr');
     const name = document.getElementById('stuName').value.trim();
     if(!name){ errBox.textContent = 'ሙሉ ስም ያስፈልጋል'; return; }
     const newFan = LIB.digitsOnly(document.getElementById('stuFan').value);
     if(newFan.length !== 16){ errBox.textContent = 'FAN 16 ዲጂት መሆን አለበት'; return; }
+    const klass = stuClassSel.value;
+    const stream = document.getElementById('mStream').value;
+    if((klass==='11'||klass==='12') && !stream){ errBox.textContent = 'Choose a department (Natural/Social) for Grade 11/12.'; return; }
     const db = LIB.getDB();
     if(newFan !== s.fan && db.students.some(x=>x.fan===newFan)){ errBox.textContent = 'ይህ FAN ቀድሞ ተመዝግቧል'; return; }
-    LIB.adminEditStudent(id, {
-      name, class: document.getElementById('stuClass').value, section: document.getElementById('stuSection').value,
-      age: Number(document.getElementById('stuAge').value)||null, phone: document.getElementById('stuPhone').value.trim(), fan: newFan
+    const res = LIB.adminEditStudent(id, {
+      name, class: klass, section: document.getElementById('stuSection').value, stream,
+      age: Number(document.getElementById('stuAge').value)||null, phone: document.getElementById('stuPhone').value.trim(), fan: newFan,
+      dob: document.getElementById('stuDob').value, gender: document.getElementById('stuGender').value,
+      address: document.getElementById('stuAddress').value.trim(), guardianName: document.getElementById('stuGName').value.trim(),
+      guardianPhone: document.getElementById('stuGPhone').value.trim(), guardianEmail: document.getElementById('stuGEmail').value.trim()
     });
+    if(!res.ok){ errBox.textContent = res.error; return; }
     closeModal(); render('Students');
   };
   document.getElementById('stuRemoveBtn').onclick = () => {
     if(confirm(`"${s.name}"ን ማስወገድ ይፈልጋሉ? ይህ የተማሪውን መለያ፣ PIN፣ የውሰት ታሪክ፣ አስተያየቶች እና ወረፋዎችን ሙሉ በሙሉ ይሰርዛል። ይህን መተው አይቻልም።\n\nRemove ${s.name}? This permanently deletes their account, PIN, borrow history, comments, and reservations.`)){
-      LIB.removeStudent(id);
+      const res = LIB.removeStudent(id);
+      if(res && res.ok === false) return alert(res.error);
       closeModal(); render('Students');
     }
   };
@@ -436,6 +529,125 @@ function resetPinModal(id){
     const res = LIB.adminSetStudentPin(id, pin);
     if(!res.ok){ document.getElementById('rpErr').textContent = res.error; return; }
     closeModal(); render('Students');
+  };
+}
+
+/* ================= REGISTRATIONS (public form -> Registrar review) ================= */
+const REG_STATUS_BADGE = { pending:'<span class="badge warn">Pending</span>', approved:'<span class="badge ok">Approved</span>', rejected:'<span class="badge danger">Rejected</span>' };
+function renderRegistrations(area){
+  if(!LIB.isRegistrar()){
+    // Director sees the count on the Dashboard already, but never the applicant
+    // details themselves — that's Registrar-only, enforced in LIB.listRegistrations().
+    area.innerHTML = `<div class="empty">🔒 Registration details are visible to the Registrar only.<br><span style="font-size:12px;">(You'll still see the pending count on the Dashboard.)</span></div>`;
+    return;
+  }
+  area.innerHTML = `
+    <h2>📝 Registrations</h2>
+    <p class="hint" style="color:var(--grey);margin-bottom:12px;">Submissions from the public Registration Portal (register.html) land here for review. Approving creates or updates the student's live roster record.</p>
+    <div class="tabs" id="regTabs">
+      <button class="tab-btn active" data-status="pending">Pending</button>
+      <button class="tab-btn" data-status="approved">Approved</button>
+      <button class="tab-btn" data-status="rejected">Rejected</button>
+    </div>
+    <div class="table-wrap card"><table><thead>
+      <tr><th>Name</th><th>Type</th><th>Grade</th><th>Dept</th><th>FAN</th><th>Submitted</th><th></th></tr>
+    </thead><tbody id="regTbody"></tbody></table></div>
+  `;
+  let currentStatus = 'pending';
+  const draw = () => {
+    const list = LIB.listRegistrations(currentStatus);
+    document.getElementById('regTbody').innerHTML = list.map(r => `
+      <tr>
+        <td><b>${LIB.escapeHtml(r.name)}</b></td>
+        <td>${r.type==='continuing'?'Continuing':'New (Grade 9)'}</td>
+        <td>${LIB.escapeHtml(r.klass)}${r.section?('/'+LIB.escapeHtml(r.section)):''}</td>
+        <td>${r.stream?LIB.escapeHtml(LIB.STREAM_LABEL[r.stream]||r.stream):'—'}</td>
+        <td>${r.fan?LIB.escapeHtml(r.fan):'<span class="hint">not yet assigned</span>'}</td>
+        <td>${LIB.fmtDate(r.submittedAt)}</td>
+        <td class="row-actions"><button class="btn sm outline" data-reg-view="${r.id}">${r.status==='pending'?'Review':'View'}</button></td>
+      </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:16px;">No ${currentStatus} registrations</td></tr>`;
+    document.querySelectorAll('[data-reg-view]').forEach(b=>b.onclick=()=>reviewRegistrationModal(b.dataset.regView));
+  };
+  document.querySelectorAll('#regTabs .tab-btn').forEach(btn=>{
+    btn.onclick = () => {
+      document.querySelectorAll('#regTabs .tab-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentStatus = btn.dataset.status;
+      draw();
+    };
+  });
+  draw();
+}
+
+function reviewRegistrationModal(regId){
+  const r = LIB.getRegistration(regId);
+  if(!r) return;
+  const isPending = r.status === 'pending';
+  openModal(`
+    <div class="modal-box">
+      <h3>${LIB.escapeHtml(r.name)} ${REG_STATUS_BADGE[r.status]}</h3>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;">${r.type==='continuing'?'Continuing student re-registration':'New student registration (Grade 9)'} · Submitted ${LIB.fmtDateTime(r.submittedAt)}</p>
+      <div class="grid cols-2">
+        <div class="field"><label>Age</label><div>${r.age||'—'}</div></div>
+        <div class="field"><label>Gender</label><div>${r.gender?LIB.escapeHtml(r.gender):'—'}</div></div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Date of Birth</label><div>${r.dob?LIB.escapeHtml(r.dob):'—'}</div></div>
+        <div class="field"><label>Student Phone</label><div>${r.phone?LIB.escapeHtml(r.phone):'—'}</div></div>
+      </div>
+      <div class="field"><label>Address</label><div>${r.address?LIB.escapeHtml(r.address):'—'}</div></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Guardian</label><div>${r.guardianName?LIB.escapeHtml(r.guardianName):'—'}</div></div>
+        <div class="field"><label>Guardian Phone</label><div>${r.guardianPhone?LIB.escapeHtml(r.guardianPhone):'—'}</div></div>
+      </div>
+      <div class="field"><label>Guardian Email</label><div>${r.guardianEmail?LIB.escapeHtml(r.guardianEmail):'—'}</div></div>
+      ${r.docPhotoUrl?`<div class="field"><label>Uploaded document</label><img src="${LIB.escapeAttr(r.docPhotoUrl)}" alt="" style="max-width:100%;border-radius:8px;border:1px solid var(--line);"></div>`:''}
+      ${r.status==='rejected' && r.rejectReason ? `<div class="msg error" style="padding:9px 11px;border-radius:9px;">Rejected: ${LIB.escapeHtml(r.rejectReason)}</div>` : ''}
+      <div class="tibeb-strip thin" style="margin:14px 0;"></div>
+      ${isPending ? `
+        <h4 style="font-size:13px;">Confirm & Approve</h4>
+        <div class="grid cols-2">
+          <div class="field"><label>Grade</label>
+            <select id="rgKlass">${["9","10","11","12"].map(c=>`<option value="${c}" ${r.klass===c?'selected':''}>${c}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Section</label><input id="rgSection" value="${LIB.escapeAttr(r.section||'')}"></div>
+        </div>
+        ${streamFieldHtml(r.klass, r.stream)}
+        <div class="field"><label>FAN (16 digit)${r.type==='continuing'?' — existing FAN':''}</label><input id="rgFan" value="${LIB.escapeAttr(r.fan||'')}" maxlength="16" inputmode="numeric" ${r.type==='continuing'?'readonly':''}></div>
+        <div class="field"><label>Initial PIN (optional — leave blank to let the student self-activate)</label>
+          <div style="display:flex;gap:8px;"><input id="rgPin" class="pin-input" inputmode="numeric" maxlength="4" style="flex:1;"><button type="button" class="btn sm outline" id="rgGen">🎲 Generate</button></div>
+        </div>
+        <div id="rgErr" style="color:var(--danger);font-size:12.5px;"></div>
+        <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
+          <button class="btn danger" id="rgReject">Reject</button>
+          <button class="btn outline" onclick="closeModal()">Close</button>
+          <button class="btn primary" id="rgApprove">✓ Approve</button>
+        </div>
+      ` : `<div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>`}
+    </div>`);
+  if(!isPending) return;
+  const klassSel = document.getElementById('rgKlass');
+  const streamWrap = document.getElementById('mStreamWrap');
+  klassSel.onchange = () => { streamWrap.style.display = (klassSel.value==='11'||klassSel.value==='12') ? '' : 'none'; };
+  document.getElementById('rgGen').onclick = () => {
+    document.getElementById('rgPin').value = String(Math.floor(1000 + Math.random()*9000));
+  };
+  document.getElementById('rgApprove').onclick = () => {
+    const res = LIB.approveRegistration(regId, {
+      fan: document.getElementById('rgFan').value,
+      klass: klassSel.value,
+      section: document.getElementById('rgSection').value,
+      stream: document.getElementById('mStream').value,
+      pin: document.getElementById('rgPin').value
+    });
+    if(!res.ok){ document.getElementById('rgErr').textContent = res.error; return; }
+    closeModal(); render('Registrations'); refreshRegBadge();
+  };
+  document.getElementById('rgReject').onclick = () => {
+    const reason = prompt('Reason for rejecting this registration (shown to Registrar only, kept on record):') || '';
+    const res = LIB.rejectRegistration(regId, reason);
+    if(!res.ok){ document.getElementById('rgErr').textContent = res.error; return; }
+    closeModal(); render('Registrations'); refreshRegBadge();
   };
 }
 
@@ -732,12 +944,12 @@ function renderStaff(area){
         <div class="field"><label>Name</label><input id="sfName"></div>
         <div class="field"><label>Username</label><input id="sfUser" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
         <div class="field"><label>Password</label><input id="sfPw" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-        <div class="field"><label>Role</label><select id="sfRole"><option value="library">Library Staff</option><option value="director">Director</option></select></div>
+        <div class="field"><label>Role</label><select id="sfRole"><option value="registrar">Registrar</option><option value="library">Library Staff</option><option value="director">Director</option></select></div>
       </div>
       <button class="btn primary" id="sfAdd">+ Add Staff</button>
     </div>
     <div class="table-wrap card" style="margin-top:12px;"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead><tbody>
-      ${db.staff.map(s=>`<tr><td>${LIB.escapeHtml(s.name)}</td><td>${LIB.escapeHtml(s.username)}</td><td>${s.role}</td>
+      ${db.staff.map(s=>`<tr><td>${LIB.escapeHtml(s.name)}</td><td>${LIB.escapeHtml(s.username)}</td><td>${LIB.escapeHtml(ROLE_LABEL[s.role]||s.role)}</td>
         <td>${s.id!==CURRENT.id?`<button class="btn sm danger" data-del-staff="${s.id}" data-del-staff-name="${LIB.escapeAttr(s.name)}">Remove</button>`:'<span class="badge grey">You</span>'}</td></tr>`).join('')}
     </tbody></table></div>
   `;
@@ -859,6 +1071,7 @@ window.SSSDP_REFRESH = function(){
   if(!document.getElementById('appShell').classList.contains('hidden')){
     const activeBtn = document.querySelector('.side-link[data-view].active');
     render(activeBtn ? activeBtn.dataset.view : 'Dashboard');
+    refreshRegBadge();
   }
 };
 // Shows any cloud-sync failure (e.g. offline, Firestore rules, or the shared

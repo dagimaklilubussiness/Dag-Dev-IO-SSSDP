@@ -18,6 +18,9 @@ const LIB = (() => {
     "Student Text Books": "የተማሪ መማሪያ መጽሐፍት"
   };
   const COPY_STATUS_LABEL = { available: "ይገኛል", borrowed: "ተወስዷል", damaged: "የተበላሸ", lost: "የጠፋ" };
+  // Grade 11 students choose a department, which then carries into Grade 12.
+  const STREAMS = ["natural", "social"];
+  const STREAM_LABEL = { natural: "Natural Science", social: "Social Science" };
 
   /* ---------------- utils ---------------- */
   const uid = (p="") => p + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
@@ -100,14 +103,15 @@ const LIB = (() => {
   const SLICE_KEYS = {
     core: ["settings", "staff", "students", "books"],
     activity: ["requests", "reservations", "comments"],
-    feed: ["announcements"]
+    feed: ["announcements"],
+    registry: ["registrations"]
   };
-  let _fsRefs = { core: null, activity: null, feed: null };
-  let _sliceCache = { core: null, activity: null, feed: null };
-  let _slicesLoaded = { core: false, activity: false, feed: false };
+  let _fsRefs = { core: null, activity: null, feed: null, registry: null };
+  let _sliceCache = { core: null, activity: null, feed: null, registry: null };
+  let _slicesLoaded = { core: false, activity: false, feed: false, registry: false };
   // Raw JSON string last known to be in Firestore for each slice — used to skip
   // writing a slice that hasn't actually changed. See saveDB() for why this matters.
-  let _sliceJsonCache = { core: null, activity: null, feed: null };
+  let _sliceJsonCache = { core: null, activity: null, feed: null, registry: null };
   let _cloudConnected = false; // true once at least one snapshot has come back successfully
 
   function sliceOf(db, keys){
@@ -116,7 +120,7 @@ const LIB = (() => {
     return o;
   }
   function composeFromSlices(){
-    return normalizeDB(Object.assign({}, _sliceCache.core, _sliceCache.activity, _sliceCache.feed));
+    return normalizeDB(Object.assign({}, _sliceCache.core, _sliceCache.activity, _sliceCache.feed, _sliceCache.registry));
   }
 
   function normalizeDB(db){
@@ -129,6 +133,7 @@ const LIB = (() => {
     db.reservations = db.reservations || [];
     db.announcements = db.announcements || [];
     db.comments = db.comments || [];
+    db.registrations = db.registrations || []; // pending/approved/rejected self-service registration submissions
     return db;
   }
 
@@ -211,7 +216,7 @@ const LIB = (() => {
         _slicesLoaded[sliceName] = true;
         _cloudConnected = true;
         window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(true);
-        if(_slicesLoaded.core && _slicesLoaded.activity && _slicesLoaded.feed){
+        if(_slicesLoaded.core && _slicesLoaded.activity && _slicesLoaded.feed && _slicesLoaded.registry){
           _dbCache = composeFromSlices();
           saveLocalCache(_dbCache);
           if(!_ready){ _ready = true; flushReady(); }
@@ -267,6 +272,7 @@ const LIB = (() => {
       _fsRefs.core = fs.collection("sssdp").doc("core");
       _fsRefs.activity = fs.collection("sssdp").doc("activity");
       _fsRefs.feed = fs.collection("sssdp").doc("feed");
+      _fsRefs.registry = fs.collection("sssdp").doc("registry");
       _cloudEnabled = true;
 
       _fsRefs.core.get().then(coreSnap => {
@@ -345,7 +351,8 @@ const LIB = (() => {
         { id: uid("an_"), title: "እንኳን ደህና መጡ!", body: "የSHENO SECONDARY SCHOOL ዲጂታል ፖርታል (SSSDP) ተጀምሯል። መጻሕፍትን መፈለግ፣ መዋስ እና ማንበብ ይችላሉ።",
           mediaUrl: "", mediaType: "", postedBy: "Director Admin", postedByRole: "director", date: now, views: [] }
       ],
-      comments: [] // {id, targetType: 'announcement'|'book', targetId, studentId, text, date}
+      comments: [], // {id, targetType: 'announcement'|'book', targetId, studentId, text, date}
+      registrations: [] // {id, type:'new'|'continuing', name, fan, klass, section, stream, ..., status:'pending'|'approved'|'rejected'}
     };
   }
 
@@ -366,14 +373,18 @@ const LIB = (() => {
   /* ---------------- auth: students ---------------- */
   // Admin pre-registers the student's official record with just a 16-digit FAN
   // (no FIN needed — kept out of the flow entirely per school policy).
-  function adminRegisterStudent({name, fan, klass, section, age, phone}){
+  function adminRegisterStudent({name, fan, klass, section, age, phone, stream, dob, gender, address, guardianName, guardianPhone, guardianEmail, docPhotoUrl}){
+    if(!canEditStudents()) return { ok:false, error: "Only the Registrar can register students." };
     fan = digitsOnly(fan);
     if(!name || !name.trim()) return { ok:false, error: "ሙሉ ስም ያስፈልጋል" };
     if(fan.length !== 16) return { ok:false, error: "FAN 16 ዲጂት መሆን አለበት" };
+    if((String(klass)==="11" || String(klass)==="12") && !STREAMS.includes(stream)) return { ok:false, error: "Choose a department (Natural or Social Science) for Grade 11/12." };
     const db = getDB();
     if(db.students.some(s => s.fan === fan)) return { ok:false, error: "ይህ FAN ቀድሞ ተመዝግቧል" };
     const student = { id: uid("std_"), fan, name: name.trim(), class: klass, section, age: Number(age)||null,
-      phone: phone||"", activated:false, pin:"", photo:"", createdAt: todayISO() };
+      phone: phone||"", stream: STREAMS.includes(stream)?stream:"", dob: dob||"", gender: gender||"", address: address||"",
+      guardianName: guardianName||"", guardianPhone: guardianPhone||"", guardianEmail: guardianEmail||"", docPhotoUrl: docPhotoUrl||"",
+      activated:false, pin:"", photo:"", createdAt: todayISO() };
     mutate(db => db.students.push(student));
     return { ok:true, student };
   }
@@ -443,8 +454,45 @@ const LIB = (() => {
     return getDB().staff.find(x => x.id === s.id) || null;
   }
 
-  // Admin resets/edits a student's PIN directly — no need for the student to remember anything.
+  /* ---------------- role-based access control ----------------
+     Three staff roles now exist: director, library, registrar.
+     - Only the Registrar may create/edit/withdraw a student record.
+     - Director and Registrar may reset a student's PIN; Library staff may not.
+     - Only the Registrar sees the sensitive registration fields (DOB, address,
+       guardian contact, uploaded documents) — see studentView()/studentsView(). */
+  function staffRole(){ const s = currentStaff(); return s ? s.role : null; }
+  function isRegistrar(){ return staffRole() === 'registrar'; }
+  function isDirector(){ return staffRole() === 'director'; }
+  function canEditStudents(){ return isRegistrar(); }
+  function canResetPin(){ return isRegistrar() || isDirector(); }
+
+  const SENSITIVE_STUDENT_FIELDS = ["dob","address","guardianName","guardianPhone","guardianEmail","docPhotoUrl","gender"];
+  // Strips the sensitive registration fields for any viewer who isn't the
+  // Registrar — used by admin.html when rendering the roster/profile so this
+  // is enforced at the data layer, not just hidden in the UI.
+  function studentView(student){
+    if(!student || isRegistrar()) return student;
+    const clean = Object.assign({}, student);
+    SENSITIVE_STUDENT_FIELDS.forEach(f => delete clean[f]);
+    return clean;
+  }
+  function studentsView(list){ return (list||[]).map(studentView); }
+
+  // Student self-service: a logged-in student changes their OWN pin from their
+  // profile. Kept separate from adminSetStudentPin (below) — which is the
+  // staff-side action restricted to Director/Registrar — so tightening staff
+  // RBAC can never block a student from managing their own PIN.
+  function studentChangeOwnPin(newPin){
+    const student = currentStudent();
+    if(!student) return { ok:false, error:"Not logged in." };
+    if(!/^\d{4}$/.test(newPin||"")) return { ok:false, error:"PIN ልክ 4 ዲጂት መሆን አለበት" };
+    mutate(db => { const s = db.students.find(x => x.id === student.id); if(s){ s.pin = newPin; s.activated = true; } });
+    return { ok:true };
+  }
+
+  // Staff resets/edits a student's PIN directly — restricted to Director/Registrar.
   function adminSetStudentPin(studentId, newPin){
+    if(!canResetPin()) return { ok:false, error:"Only the Director or Registrar can reset a student PIN." };
     if(!/^\d{4}$/.test(newPin||"")) return { ok:false, error:"PIN ልክ 4 ዲጂት መሆን አለበት" };
     mutate(db => {
       const s = db.students.find(x => x.id === studentId);
@@ -453,13 +501,17 @@ const LIB = (() => {
     return { ok:true };
   }
   function adminEditStudent(studentId, patch){
+    if(!canEditStudents()) return { ok:false, error:"Only the Registrar can edit student records." };
     mutate(db => {
       const s = db.students.find(x => x.id === studentId);
       if(s) Object.assign(s, patch);
     });
+    return { ok:true };
   }
   function adminSetStudentPhoto(studentId, dataUrl){
+    if(!canEditStudents()) return { ok:false, error:"Only the Registrar can update a student's photo." };
     mutate(db => { const s = db.students.find(x=>x.id===studentId); if(s) s.photo = dataUrl || ""; });
+    return { ok:true };
   }
   // Partial-name search: admin can find a student typing just part of the name
   // (a first name, a last name, or any fragment) — no need to type it in full.
@@ -473,6 +525,7 @@ const LIB = (() => {
   // holding back to 'available', then deletes the student plus their requests,
   // reservations, and comments so no orphaned data is left behind.
   function removeStudent(id){
+    if(!canEditStudents()) return { ok:false, error: "Only the Registrar can withdraw a student record." };
     mutate(db => {
       db.requests.forEach(r => {
         if(r.studentId === id && (r.status === 'pending' || r.status === 'borrowed')){
@@ -486,6 +539,105 @@ const LIB = (() => {
       db.reservations = db.reservations.filter(r => r.studentId !== id);
       db.comments = db.comments.filter(c => c.studentId !== id);
     });
+    return { ok:true };
+  }
+
+  /* ---------------- registration intake (public form -> Registrar review) ----------------
+     New Grade 9 students and continuing Grade 10-12 students submit here with NO login
+     required. Nothing lands in the live student roster until the Registrar reviews and
+     approves it — this is what keeps "who can change a student's data" limited to the
+     Registrar even though anyone can submit a request. */
+  function submitRegistration(payload){
+    payload = payload || {};
+    const name = (payload.name||"").trim();
+    if(!name) return { ok:false, error:"Full name is required." };
+    const type = payload.type === 'continuing' ? 'continuing' : 'new';
+    const klass = String(payload.klass||"").trim();
+    if(!["9","10","11","12"].includes(klass)) return { ok:false, error:"Choose a valid grade (9–12)." };
+    const stream = STREAMS.includes(payload.stream) ? payload.stream : "";
+    if((klass === "11" || klass === "12") && !stream) return { ok:false, error:"Choose a department — Natural Science or Social Science." };
+    if(!payload.consent) return { ok:false, error:"Parent/guardian consent is required before submitting." };
+    let fan = digitsOnly(payload.fan||"");
+    if(type === 'continuing'){
+      if(fan.length !== 16) return { ok:false, error:"Enter your existing 16-digit FAN to continue your registration." };
+    } else if(fan && fan.length !== 16){
+      return { ok:false, error:"FAN must be exactly 16 digits — or leave it blank if you don't have one yet." };
+    }
+    const rec = {
+      id: uid("reg_"), type, name, fan, klass, section: (payload.section||"").trim(), stream,
+      age: Number(payload.age)||null, gender: (payload.gender||"").trim(), dob: (payload.dob||"").trim(),
+      phone: (payload.phone||"").trim(), address: (payload.address||"").trim(),
+      guardianName: (payload.guardianName||"").trim(), guardianPhone: (payload.guardianPhone||"").trim(),
+      guardianEmail: (payload.guardianEmail||"").trim(), docPhotoUrl: payload.docPhotoUrl||"",
+      consent: true, status: "pending", submittedAt: todayISO(), reviewedAt: "", reviewedBy: "", rejectReason: ""
+    };
+    mutate(db => db.registrations.unshift(rec));
+    return { ok:true, id: rec.id };
+  }
+  // Safe for any page to show ("N pending registrations") without exposing any
+  // applicant's personal information.
+  function countPendingRegistrations(){ return getDB().registrations.filter(r=>r.status==='pending').length; }
+  // Full registration detail is Registrar-only.
+  function listRegistrations(status){
+    if(!isRegistrar()) return [];
+    const list = getDB().registrations;
+    return status ? list.filter(r=>r.status===status) : list.slice();
+  }
+  function getRegistration(id){
+    if(!isRegistrar()) return null;
+    return getDB().registrations.find(r=>r.id===id) || null;
+  }
+  // Approving creates the live student record (or updates the matching one for
+  // a continuing student) — this is the ONE path data flows from the public
+  // registration form into the roster SSSDP's own admin/index pages read from.
+  function approveRegistration(regId, opts){
+    if(!isRegistrar()) return { ok:false, error:"Only the Registrar can approve registrations." };
+    opts = opts || {};
+    const reg = getDB().registrations.find(r=>r.id===regId);
+    if(!reg) return { ok:false, error:"Registration not found." };
+    if(reg.status !== 'pending') return { ok:false, error:"This registration was already reviewed." };
+    const finalFan = digitsOnly(opts.fan||reg.fan);
+    if(finalFan.length !== 16) return { ok:false, error:"A valid 16-digit FAN is required to approve." };
+    const finalKlass = String(opts.klass||reg.klass);
+    const finalStream = STREAMS.includes(opts.stream) ? opts.stream : (STREAMS.includes(reg.stream)?reg.stream:"");
+    if((finalKlass === "11" || finalKlass === "12") && !finalStream) return { ok:false, error:"Choose a department (Natural/Social) before approving a Grade 11/12 student." };
+    const db = getDB();
+    const clashing = db.students.find(s => s.fan === finalFan);
+    if(clashing && !(reg.type === 'continuing' && clashing.fan === reg.fan)) return { ok:false, error:"This FAN is already registered to another student." };
+    const pinOk = opts.pin && /^\d{4}$/.test(opts.pin);
+    let studentId;
+    mutate(db => {
+      let s = db.students.find(x => x.fan === finalFan);
+      const patch = { name: reg.name, class: finalKlass, section: (opts.section||reg.section||""), stream: finalStream,
+        age: reg.age, gender: reg.gender, dob: reg.dob, address: reg.address,
+        guardianName: reg.guardianName, guardianPhone: reg.guardianPhone, guardianEmail: reg.guardianEmail,
+        docPhotoUrl: reg.docPhotoUrl || (s && s.docPhotoUrl) || "" };
+      if(reg.phone) patch.phone = reg.phone;
+      if(s){
+        Object.assign(s, patch);
+        if(pinOk){ s.pin = opts.pin; s.activated = true; }
+      } else {
+        s = Object.assign({ id: uid("std_"), fan: finalFan, phone:"", activated: !!pinOk, pin: pinOk?opts.pin:"", photo:"", createdAt: todayISO() }, patch);
+        db.students.push(s);
+      }
+      studentId = s.id;
+      const r = db.registrations.find(x=>x.id===regId);
+      r.status = "approved"; r.reviewedAt = todayISO(); r.reviewedBy = (currentStaff()||{}).name || "";
+    });
+    return { ok:true, studentId };
+  }
+  function rejectRegistration(regId, reason){
+    if(!isRegistrar()) return { ok:false, error:"Only the Registrar can review registrations." };
+    mutate(db => {
+      const r = db.registrations.find(x=>x.id===regId);
+      if(r){ r.status = "rejected"; r.reviewedAt = todayISO(); r.reviewedBy = (currentStaff()||{}).name || ""; r.rejectReason = reason||""; }
+    });
+    return { ok:true };
+  }
+  function removeRegistration(regId){
+    if(!isRegistrar()) return { ok:false, error:"Only the Registrar can remove a registration record." };
+    mutate(db => { db.registrations = db.registrations.filter(r=>r.id!==regId); });
+    return { ok:true };
   }
 
   /* ---------------- staff management (director only) ---------------- */
@@ -813,13 +965,15 @@ const LIB = (() => {
   }
 
   return {
-    CATEGORIES, CATEGORY_LABEL, COPY_STATUS_LABEL, DEFAULT_DUE_DAYS,
+    CATEGORIES, CATEGORY_LABEL, COPY_STATUS_LABEL, DEFAULT_DUE_DAYS, STREAMS, STREAM_LABEL,
     uid, todayISO, addDays, fmtDate, fmtDateTime, isOverdue, daysLeft, escapeHtml, escapeAttr, digitsOnly, stars, fuzzyMatch,
     fileToResizedDataURL, fileToDataURL,
     getDB, mutate, ready, getSettings, updateSettings, applyTheme,
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
-    adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
+    adminSetStudentPin, studentChangeOwnPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
+    isRegistrar, isDirector, canEditStudents, canResetPin, studentView, studentsView,
+    submitRegistration, countPendingRegistrations, listRegistrations, getRegistration, approveRegistration, rejectRegistration, removeRegistration,
     setupFirstDirector, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData, restoreDemoBooks,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,

@@ -59,6 +59,7 @@
         </div>
         <button class="btn primary block" type="submit">ግባ</button>
         <p class="helper-link">አድሚን / ላይብረሪ ነዎት? <a href="admin.html">የአድሚን መግቢያ →</a></p>
+        <p class="helper-link">አዲስ ተማሪ ነዎት? New student? <a href="register.html">Register here →</a></p>
       </form>
     </div>
   </div>
@@ -398,6 +399,7 @@ function renderProfile(student){
       <div class="grid cols-2">
         <div><div class="field"><label>ክፍል / ክፍለ ክፍል</label><div>${LIB.escapeHtml(String(student.class))} / ${LIB.escapeHtml(String(student.section))}</div></div></div>
         <div><div class="field"><label>እድሜ</label><div>${student.age||'—'}</div></div></div>
+        ${student.stream ? `<div><div class="field"><label>Department</label><div>${LIB.escapeHtml(LIB.STREAM_LABEL[student.stream]||student.stream)}</div></div></div>` : ''}
         <div style="grid-column:1/-1;"><div class="field"><label>FAN</label><div>${LIB.escapeHtml(student.fan)}</div></div></div>
       </div>
     </div>
@@ -427,7 +429,7 @@ function renderProfile(student){
     const pin = document.getElementById('newPin').value;
     const msg = document.getElementById('pinMsg');
     if(!/^\d{4}$/.test(pin)){ msg.textContent = 'ልክ 4 ዲጂት ያስፈልጋል'; msg.style.color='var(--danger)'; return; }
-    LIB.adminSetStudentPin(student.id, pin); // student editing own PIN uses the same setter
+    LIB.studentChangeOwnPin(pin); // student editing own PIN uses the dedicated self-service setter
     msg.textContent = 'ተቀምጧል ✓'; msg.style.color='var(--ok)';
     document.getElementById('newPin').value='';
   };

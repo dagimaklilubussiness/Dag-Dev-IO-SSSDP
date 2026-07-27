@@ -208,6 +208,10 @@ input,select,textarea{font-family:inherit}
   min-width:16px; height:16px; padding:0 4px; border-radius:9px;
   background: var(--red); color:#fff; font-size:10px; font-weight:800; line-height:16px; text-align:center;
 }
+.side-badge{
+  margin-inline-start:auto; min-width:18px; height:18px; padding:0 5px; border-radius:9px;
+  background: var(--red); color:#fff; font-size:10.5px; font-weight:800; line-height:18px; text-align:center;
+}
 
 /* ---------- Cards / generic ---------- */
 .card{
@@ -425,3 +429,59 @@ footer.watermark a{ color:var(--red); font-weight:700; text-decoration:none;}
   .auth-card-inner{ padding:20px 16px;}
   .modal-box{ padding:16px;}
 }
+
+/* ============================================================
+   Registration Portal (register.html)
+   ============================================================ */
+.reg-shell{ min-height:100vh; background:var(--off); padding-bottom:40px; }
+.reg-hero{
+  position:relative; padding:34px 20px 26px; text-align:center; color:#fff; overflow:hidden;
+  background:
+    linear-gradient(180deg, rgba(18,18,18,.58), rgba(18,18,18,.9)),
+    url('skyline-crop.jpg');
+  background-size:cover; background-position:center top; background-repeat:no-repeat;
+}
+.reg-hero .logo-badge{ width:56px;height:56px;margin:0 auto 10px; border:2px solid rgba(255,255,255,.5); }
+.reg-hero h1{ font-size:20px; margin-bottom:4px; color:#fff; }
+.reg-hero p{ font-size:12.5px; opacity:.85; margin:0; }
+
+.reg-main{ max-width:640px; margin:0 auto; padding:22px 16px 0; position:relative; }
+
+.step-indicator{ display:flex; align-items:center; justify-content:center; gap:0; margin-bottom:22px; }
+.step-indicator .step{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+.step-indicator .dot{
+  width:26px;height:26px;border-radius:50%; background:#fff; border:2px solid var(--line); color:var(--grey);
+  display:flex;align-items:center;justify-content:center; font-size:12px; font-weight:800; flex:none;
+}
+.step-indicator .step.active .dot{ background:var(--red); border-color:var(--red); color:#fff; }
+.step-indicator .step.done .dot{ background:var(--gold); border-color:var(--gold); color:#fff; }
+.step-indicator .step .lbl{ font-size:10.5px; font-weight:700; color:var(--grey); white-space:nowrap; }
+.step-indicator .step.active .lbl{ color:var(--black); }
+.step-indicator .link{ width:34px; height:2px; background:var(--line); margin:0 4px 16px; }
+.step-indicator .link.done{ background:var(--gold); }
+
+.choice-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+@media (max-width:520px){ .choice-grid{ grid-template-columns:1fr; } }
+.choice-card{
+  position:relative; text-align:start; background:#fff; border:2px solid var(--line); border-radius:var(--radius);
+  padding:16px 40px 16px 14px; cursor:pointer; transition:border-color .15s, box-shadow .15s, transform .1s;
+}
+.choice-card:hover{ border-color:#e2b9c0; transform:translateY(-1px); }
+.choice-card.selected{ border-color:var(--red); box-shadow:0 0 0 3px var(--red-soft); }
+.choice-card .ic{ font-size:24px; display:block; margin-bottom:8px; }
+.choice-card h4{ font-size:14px; margin:0 0 3px; }
+.choice-card p{ font-size:11.5px; color:var(--grey); margin:0; }
+.choice-card .check{ position:absolute; top:14px; inset-inline-end:12px; width:20px;height:20px;border-radius:50%; border:2px solid var(--line); background:#fff; }
+.choice-card.selected .check{ background:var(--red); border-color:var(--red); }
+.choice-card.selected .check::after{ content:"✓"; color:#fff; font-size:12px; font-weight:800; display:block; text-align:center; line-height:17px; }
+
+.review-row{ display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.review-row:last-child{ border-bottom:none; }
+.review-row .k{ color:var(--grey); }
+.review-row .v{ font-weight:700; text-align:end; }
+
+.consent-box{ display:flex; gap:10px; align-items:flex-start; background:var(--off); border:1px solid var(--line); border-radius:10px; padding:12px; font-size:12px; color:#333; }
+.consent-box input{ margin-top:2px; width:16px;height:16px; flex:none; }
+
+.success-mark{ width:64px;height:64px;border-radius:50%; background:var(--ok); color:#fff; display:flex;align-items:center;justify-content:center; font-size:30px; margin:0 auto 14px; }
+.ref-code{ font-family:monospace; font-weight:800; letter-spacing:.06em; background:var(--off); border:1px dashed var(--line); border-radius:8px; padding:8px 12px; display:inline-block; }
