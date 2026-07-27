@@ -59,7 +59,6 @@
         </div>
         <button class="btn primary block" type="submit">ግባ</button>
         <p class="helper-link">አድሚን / ላይብረሪ ነዎት? <a href="admin.html">የአድሚን መግቢያ →</a></p>
-        <p class="helper-link">አዲስ ተማሪ ነዎት? New student? <a href="register.html">Register here →</a></p>
       </form>
     </div>
   </div>
@@ -130,6 +129,47 @@ window.SSSDP_ON_CLOUD_STATUS = function(connected){
   dot.classList.toggle('offline', !connected);
   dot.title = connected ? 'የደመና ግንኙነት ንቁ ነው / Synced live' : 'ከደመና ጋር አልተገናኘም — ለውጦች ላይዘምኑ ይችላሉ / Not synced — changes may not reach the admin';
 };
+// Registers sw.js so we can show real device notifications for new
+// announcements. See sw.js for the honest limitation: this only fires while
+// the app/tab has been opened this session (or recently enough that the
+// browser kept it running in the background) — a fully closed app can't be
+// woken up without adding a push server (FCM), which this project doesn't have.
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+function notifSupported(){ return 'Notification' in window; }
+function notifPermission(){ return notifSupported() ? Notification.permission : 'unsupported'; }
+function requestNotifPermission(cb){
+  if(!notifSupported()) return cb('unsupported');
+  Notification.requestPermission().then(cb);
+}
+function showAnnouncementNotification(a){
+  const body = (a.body||'').length > 120 ? a.body.slice(0,117)+'…' : (a.body||'');
+  const opts = { body, icon: 'school-logo.jpg', tag: a.id };
+  if(navigator.serviceWorker && navigator.serviceWorker.ready){
+    navigator.serviceWorker.ready.then(reg => reg.showNotification(a.title, opts)).catch(() => {
+      try{ new Notification(a.title, opts); }catch(e){}
+    });
+  } else {
+    try{ new Notification(a.title, opts); }catch(e){}
+  }
+}
+// Tracks which announcements this tab has already notified about, per
+// session. On the very first check after login we just record the current
+// list as the baseline (no notification burst for posts that already
+// existed) — only announcements that show up AFTER that trigger a notification.
+let _seenAnnIds = null;
+function checkForNewAnnouncements(student){
+  if(!student) return;
+  const anns = LIB.listAnnouncementsFor(student); // already filtered to #GENERAL + this student's own grade
+  if(_seenAnnIds === null){ _seenAnnIds = new Set(anns.map(a=>a.id)); return; }
+  const newOnes = anns.filter(a => !_seenAnnIds.has(a.id));
+  if(newOnes.length && notifPermission() === 'granted'){
+    newOnes.forEach(a => showAnnouncementNotification(a));
+  }
+  anns.forEach(a => _seenAnnIds.add(a.id));
+}
+
 LIB.applyTheme();
 const s = LIB.getSettings();
 window.__logoFallback = (s.schoolName||'S')[0];
@@ -203,6 +243,7 @@ function bootApp(){
   const student = LIB.currentStudent();
   document.getElementById('studentNameTag').textContent = student ? `${student.name} • ክፍል ${student.class}${student.section}` : '';
   updateInboxBadge(student);
+  checkForNewAnnouncements(student);
   renderView('Home');
 }
 
@@ -248,6 +289,15 @@ function renderHome(student){
     html += `<div class="msg error" style="margin-top:14px;">⚠ ${overdue.length} መጽሐፍ(ት) የመመለሻ ቀናቸው አልፏል። እባክዎ በቅርቡ ይመልሱ።</div>`;
   }
 
+  if(notifSupported() && notifPermission() === 'default'){
+    html += `<div class="msg warn" style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span>🔔 ዳይሬክተር ማስታወቂያ ሲልክ በስልክዎ ማሳወቂያ (notification) ይፈልጋሉ? / Get a phone notification when the Director posts a #GENERAL announcement or one for your grade.</span>
+      <button class="btn primary sm" id="enableNotifBtn">🔔 Enable Notifications</button>
+    </div>`;
+  } else if(notifSupported() && notifPermission() === 'denied'){
+    html += `<div class="msg error" style="margin-top:14px;">🔕 Notifications are blocked for this site. To get announcement alerts, allow notifications for this site in your phone's browser settings.</div>`;
+  }
+
   html += `<div class="section-title"><h2>📢 የቅርብ ጊዜ ማስታወቂያዎች</h2></div>`;
   if(!anns.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም ማስታወቂያ የለም</div>`; }
   anns.forEach(a => { html += announcementCardHtml(a); });
@@ -255,6 +305,8 @@ function renderHome(student){
   document.getElementById('viewHome').innerHTML = html;
   wireAnnouncementCards(student);
   updateInboxBadge(student);
+  const enableBtn = document.getElementById('enableNotifBtn');
+  if(enableBtn) enableBtn.onclick = () => requestNotifPermission(() => renderHome(student));
 }
 
 function announcementCardHtml(a){
@@ -399,9 +451,15 @@ function renderProfile(student){
       <div class="grid cols-2">
         <div><div class="field"><label>ክፍል / ክፍለ ክፍል</label><div>${LIB.escapeHtml(String(student.class))} / ${LIB.escapeHtml(String(student.section))}</div></div></div>
         <div><div class="field"><label>እድሜ</label><div>${student.age||'—'}</div></div></div>
-        ${student.stream ? `<div><div class="field"><label>Department</label><div>${LIB.escapeHtml(LIB.STREAM_LABEL[student.stream]||student.stream)}</div></div></div>` : ''}
+        <div><div class="field"><label>የልደት ቀን (EC)</label><div>${LIB.escapeHtml(LIB.fmtEthDate(student.ecBirth))}</div></div></div>
         <div style="grid-column:1/-1;"><div class="field"><label>FAN</label><div>${LIB.escapeHtml(student.fan)}</div></div></div>
       </div>
+    </div>
+
+    <div class="section-title"><h2>🔔 ማሳወቂያ / Notifications</h2></div>
+    <div class="card">
+      <div id="notifStatusMsg" style="font-size:12.5px;margin-bottom:8px;"></div>
+      <button class="btn primary sm" id="enableNotifBtnProfile">🔔 Enable Notifications</button>
     </div>
 
     <div class="section-title"><h2>🔑 PIN ቀይር</h2></div>
@@ -425,11 +483,22 @@ function renderProfile(student){
     </div>
   `;
   document.getElementById('viewProfile').innerHTML = html;
+  const notifMsg = document.getElementById('notifStatusMsg');
+  const notifBtn = document.getElementById('enableNotifBtnProfile');
+  const renderNotifStatus = () => {
+    const p = notifPermission();
+    if(!notifSupported()){ notifMsg.textContent = 'Not supported on this browser.'; notifBtn.style.display='none'; }
+    else if(p === 'granted'){ notifMsg.innerHTML = '<span style="color:var(--ok);">✓ Enabled — you\'ll get a notification for #GENERAL posts and posts for your grade.</span>'; notifBtn.style.display='none'; }
+    else if(p === 'denied'){ notifMsg.innerHTML = '<span style="color:var(--danger);">🔕 Blocked. Allow notifications for this site in your phone/browser settings, then reload.</span>'; notifBtn.style.display='none'; }
+    else { notifMsg.textContent = 'Not enabled yet.'; notifBtn.style.display=''; }
+  };
+  renderNotifStatus();
+  notifBtn.onclick = () => requestNotifPermission(renderNotifStatus);
   document.getElementById('savePinBtn').onclick = () => {
     const pin = document.getElementById('newPin').value;
     const msg = document.getElementById('pinMsg');
     if(!/^\d{4}$/.test(pin)){ msg.textContent = 'ልክ 4 ዲጂት ያስፈልጋል'; msg.style.color='var(--danger)'; return; }
-    LIB.studentChangeOwnPin(pin); // student editing own PIN uses the dedicated self-service setter
+    LIB.adminSetStudentPin(student.id, pin); // student editing own PIN uses the same setter
     msg.textContent = 'ተቀምጧል ✓'; msg.style.color='var(--ok)';
     document.getElementById('newPin').value='';
   };
@@ -443,7 +512,9 @@ window.SSSDP_REFRESH = function(){
   if(!document.getElementById('appShell').classList.contains('hidden')){
     const activeBtn = document.querySelector('.nav-btn.active');
     renderView(activeBtn ? activeBtn.dataset.view : 'Home');
-    updateInboxBadge(LIB.currentStudent());
+    const student = LIB.currentStudent();
+    updateInboxBadge(student);
+    checkForNewAnnouncements(student); // fires a phone notification if a new #GENERAL/grade-tagged post just arrived
   }
 };
 (function init(){
