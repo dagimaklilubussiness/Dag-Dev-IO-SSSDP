@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin • SSSDP</title>
+<meta name="theme-color" content="#121212">
+<link rel="preconnect" href="https://firestore.googleapis.com">
+<link rel="preconnect" href="https://www.gstatic.com">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a href="#mainArea" class="skip-link">ወደ ዋና ይዘት ዝለል / Skip to content</a>
+<div class="dev-credit">This Website app developed by 2024/25 batch Dagim Aklilu &amp; Dawit Alemu</div>
+
+<!-- ===================== CLOUD LOADING SCREEN ===================== -->
+<div id="cloudLoading" class="auth-wrap cloud-loading-bg">
+  <div class="auth-card loading-card">
+    <div class="tibeb-strip textured thin"></div>
+    <div class="auth-card-inner" style="padding:38px 24px 30px;">
+      <div class="loading-badge"><img src="motif-badge.png" alt="" onerror="this.style.display='none'"></div>
+      <div class="loading-spinner" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="loading-caption" id="loadingCaption">Loading…</div>
+      <div class="loading-slow hidden" id="loadingSlow">Taking longer than usual — check your connection.<br><button class="btn outline sm" type="button" onclick="location.reload()">Retry</button></div>
+    </div>
+    <div class="tibeb-strip textured thin"></div>
+  </div>
+</div>
+
+<!-- ===================== AUTH SCREEN ===================== -->
+<div id="authScreen" class="auth-wrap hidden">
+  <div class="auth-card">
+    <div class="heritage-mark photo" aria-hidden="true"></div>
+    <div class="tibeb-strip textured"></div>
+    <div class="auth-card-inner">
+      <div class="auth-logo">
+        <div class="logo-badge" id="logoBadgeAuth"><img src="school-logo.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+        <div class="brand-name" id="brandNameAuth">Admin Console<small>Registrar, Director & Library Staff</small></div>
+      </div>
+      <div id="authMsg" aria-live="polite"></div>
+      <form id="loginForm" class="hidden">
+        <div class="field"><label for="loginUser">የተጠቃሚ ስም</label><input id="loginUser" required autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="field">
+          <label for="loginPw">የይለፍ ቃል</label>
+          <div class="pw-wrap">
+            <input id="loginPw" type="password" required autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="የይለፍ ቃል አሳይ/ደብቅ">👁</button>
+          </div>
+        </div>
+        <button class="btn primary block" type="submit">ግባ</button>
+        <p class="helper-link">ተማሪ ነዎት? <a href="index.html">የተማሪ መግቢያ →</a></p>
+      </form>
+
+      <!-- Shown ONLY when no staff account exists yet (fresh install). The
+           Registrar is the top-level admin — the only role that can reach
+           Settings & Backup and create/remove Staff accounts — so the very
+           first account on a fresh install is set up as Registrar. Disappears
+           forever once any staff account exists. -->
+      <form id="setupForm" class="hidden">
+        <p class="msg warn">No admin account exists yet. Create the Registrar account to get started — you'll use this username &amp; password to log in from now on, and can create Director/Library Staff accounts afterward from Staff Accounts.</p>
+        <div class="field"><label for="setupName">Full Name</label><input id="setupName" required></div>
+        <div class="field"><label for="setupUser">Username</label><input id="setupUser" required autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="field">
+          <label for="setupPw">Password (min 6 characters)</label>
+          <div class="pw-wrap">
+            <input id="setupPw" type="password" required minlength="6" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+            <button type="button" class="pw-toggle" id="setupPwToggle" aria-label="Show/hide password">👁</button>
+          </div>
+        </div>
+        <button class="btn primary block" type="submit">Create Registrar Account</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="appShell" class="admin-shell hidden">
+  <div class="sidebar">
+    <div class="logo-row">
+      <div class="logo-badge" id="logoBadgeSide" style="width:32px;height:32px;font-size:13px;"><img src="school-logo.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+      <div style="font-weight:800;font-size:13px;color:#fff;" id="brandNameSide">Admin Console</div>
+      <span class="cloud-dot" id="cloudDot" title="Cloud sync status" style="margin-inline-start:auto;"></span>
+    </div>
+    <div class="tibeb-strip textured thin" style="margin-bottom:8px;"></div>
+    <button class="side-link active" data-view="Dashboard">📊 Dashboard</button>
+    <button class="side-link" data-view="Applications" id="navApplications">📝 Applications <span id="appPendingBadge" class="hidden" style="background:var(--danger);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-inline-start:4px;"></span></button>
+    <button class="side-link" data-view="Students">🎓 Students</button>
+    <button class="side-link" data-view="Books">📚 Books</button>
+    <button class="side-link" data-view="Requests">📥 Requests & Loans</button>
+    <button class="side-link" data-view="Reservations">⏳ Reservations</button>
+    <button class="side-link" data-view="Announcements">📢 Announcements</button>
+    <button class="side-link" data-view="Staff" id="navStaff">🧑‍💼 Staff Accounts</button>
+    <button class="side-link" data-view="Settings">⚙️ Settings & Backup</button>
+    <button class="side-link" id="logoutBtn" style="margin-top:8px;">🚪 Logout</button>
+    <div class="side-role" id="roleTag"></div>
+  </div>
+
+  <div class="admin-main">
+    <div id="syncErrorBanner" style="display:none;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;"></div>
+    <div id="mainArea"></div>
+  </div>
+</div>
+<footer class="watermark" id="appShellFooter" style="display:none;">
+  <div class="tibeb-strip textured thin" style="margin-bottom:14px;"></div>
+  <div class="culture-row" aria-hidden="true">
+    <div class="culture-ic" title="Weaving pattern"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 12 L12 4 L20 12 L28 4 L36 12"/><path d="M4 22 L12 14 L20 22 L28 14 L36 22"/><path d="M4 32 L12 24 L20 32 L28 24 L36 32"/></svg></div>
+    <div class="culture-ic" title="Coffee ceremony jebena"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14c-3 4-3 12 0 16 2 3 10 3 12 0 3-4 3-12 0-16"/><path d="M20 6v8"/><circle cx="20" cy="5" r="2"/><path d="M26 18c4 0 6 2 6 4s-2 3-5 3"/><path d="M14 30c-2 1-2 3 0 4h12c2-1 2-3 0-4"/></svg></div>
+    <div class="culture-ic" title="Reading &amp; learning"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M20 10c-4-3-9-3-13-1v20c4-2 9-2 13 1 4-3 9-3 13-1V9c-4-2-9-2-13 1z"/><path d="M20 10v20"/></svg></div>
+    <div class="culture-ic" title="Highland landscape"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 30 L12 16 L18 24 L24 12 L37 30 Z"/><circle cx="30" cy="10" r="3"/></svg></div>
+    <div class="culture-ic" title="Diamond weave"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M20 4 L34 20 L20 36 L6 20 Z"/><path d="M20 12 L28 20 L20 28 L12 20 Z"/></svg></div>
+  </div>
+  <div class="culture-caption">SSSDP · Woven with local heritage</div>
+  <img src="developer-logo.jpg" alt="" style="height:16px;vertical-align:middle;margin-inline-end:5px;border-radius:3px;" onerror="this.style.display='none'">
+  © 2026 <a href="https://t.me/dagdevio" target="_blank" rel="noopener">DAG DEV IO</a> — t.me/dagdevio
+</footer>
+
+<div id="modalRoot"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+<script>
+LIB.applyTheme();
+(function wireLogos(){
+  const s = LIB.getSettings();
+  const fallback = (s.schoolName||'A')[0];
+  document.getElementById('brandNameAuth').firstChild.nodeValue = s.portalName ? s.portalName.split(' — ')[0] + ' ' : 'Admin Console ';
+  document.getElementById('brandNameSide').textContent = s.portalName ? s.portalName.split(' — ')[0] : 'Admin Console';
+  document.title = 'Admin • ' + (s.portalName||'SSSDP');
+  document.querySelectorAll('#logoBadgeAuth img, #logoBadgeSide img').forEach(img => {
+    if(s.logoUrl){
+      img.src = s.logoUrl; img.style.display='';
+      img.addEventListener('error', () => { img.style.display='none'; img.parentElement.textContent = fallback; }, { once:true });
+    } else {
+      img.addEventListener('error', function onLocalErr(){
+        img.removeEventListener('error', onLocalErr);
+        img.style.display='none'; img.parentElement.textContent = fallback;
+      }, { once:true });
+    }
+  });
+})();
+
+let CURRENT = null; // staff record
+
+document.getElementById('pwToggle').onclick = () => {
+  const inp = document.getElementById('loginPw');
+  inp.type = inp.type==='password'?'text':'password';
+};
+
+document.getElementById('loginForm').onsubmit = (e) => {
+  e.preventDefault();
+  const u = document.getElementById('loginUser').value;
+  const p = document.getElementById('loginPw').value;
+  const res = LIB.staffLogin(u, p);
+  const msg = document.getElementById('authMsg');
+  if(!res.ok){ msg.innerHTML = `<div class="msg error">${LIB.escapeHtml(res.error)}</div>`; return; }
+  bootApp();
+};
+document.getElementById('setupPwToggle').onclick = () => {
+  const inp = document.getElementById('setupPw');
+  inp.type = inp.type==='password'?'text':'password';
+};
+document.getElementById('setupForm').onsubmit = (e) => {
+  e.preventDefault();
+  const res = LIB.setupFirstAdmin({
+    name: document.getElementById('setupName').value,
+    username: document.getElementById('setupUser').value,
+    password: document.getElementById('setupPw').value
+  });
+  const msg = document.getElementById('authMsg');
+  if(!res.ok){ msg.innerHTML = `<div class="msg error">${LIB.escapeHtml(res.error)}</div>`; return; }
+  bootApp();
+};
+document.getElementById('logoutBtn').onclick = () => { LIB.clearSession(); location.reload(); };
+
+function bootApp(){
+  CURRENT = LIB.currentStaff();
+  if(!CURRENT){ return; }
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+  document.getElementById('appShellFooter').style.display = 'block';
+  const ROLE_LABEL = { director:'Director', library:'Library Staff', registrar:'Registrar' };
+  document.getElementById('roleTag').textContent = `${CURRENT.name} — ${ROLE_LABEL[CURRENT.role]||CURRENT.role}`;
+  // Staff Accounts and Settings & Backup are Registrar-only — the Registrar
+  // is the top-level admin who bootstraps the system, manages backups, and
+  // creates/removes every other staff account (Director, Library Staff,
+  // other Registrars).
+  if(CURRENT.role !== 'registrar'){
+    document.getElementById('navStaff').classList.add('hidden');
+    document.querySelector('.side-link[data-view="Settings"]').classList.add('hidden');
+    document.getElementById('navApplications').classList.add('hidden'); // Applications review is Registrar-only too
+  }
+  // Registrar's own job is student registration only — no Books, Requests &
+  // Loans, Reservations, or Announcements. Dashboard is also swapped for a
+  // registration-focused stats view (see renderDashboard).
+  if(CURRENT.role === 'registrar'){
+    ['Books','Requests','Reservations','Announcements'].forEach(v => {
+      document.querySelector(`.side-link[data-view="${v}"]`).classList.add('hidden');
+    });
+  }
+  // Director is deliberately narrow: Announcements + Dashboard, nothing else.
+  // Books/Requests & Loans/Reservations are Library Staff's job exclusively;
+  // Students is Registrar/Library's job.
+  if(CURRENT.role === 'director'){
+    ['Students','Books','Requests','Reservations'].forEach(v => {
+      document.querySelector(`.side-link[data-view="${v}"]`).classList.add('hidden');
+    });
+  }
+  updateApplicationsBadge();
+  document.querySelectorAll('.side-link[data-view]').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.side-link[data-view]').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      render(btn.dataset.view);
+    };
+  });
+  render('Dashboard');
+}
+
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
+function openModal(html){ document.getElementById('modalRoot').innerHTML = `<div class="modal-overlay" id="ov" role="dialog" aria-modal="true">${html}</div>`;
+  document.getElementById('ov').addEventListener('click', (e)=>{ if(e.target.id==='ov') closeModal(); }); }
+
+// A stronger confirmation step than a plain browser confirm() popup — used
+// before anything that edits or permanently deletes a student record, so an
+// accidental tap/click can't instantly change or wipe data. When requireText
+// is given, the action button stays disabled until the admin types that
+// exact text (e.g. the student's name), which is the "advanced" version for
+// destructive/irreversible actions like Remove.
+function openConfirmModal({title, message, requireText, confirmLabel, danger, onConfirm}){
+  openModal(`
+    <div class="modal-box">
+      <h3>${danger?'⚠️ ':''}${LIB.escapeHtml(title)}</h3>
+      <p style="font-size:13px;white-space:pre-line;line-height:1.5;">${LIB.escapeHtml(message)}</p>
+      ${requireText ? `<div class="field"><label>Type "<b>${LIB.escapeHtml(requireText)}</b>" to confirm</label><input id="confirmTypedInput" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>` : ''}
+      <div id="confirmErr" style="color:var(--danger);font-size:12px;min-height:16px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn ${danger?'danger':'primary'}" id="confirmActionBtn">${LIB.escapeHtml(confirmLabel||'Confirm')}</button>
+      </div>
+    </div>`);
+  document.getElementById('confirmActionBtn').onclick = () => {
+    if(requireText){
+      const typed = (document.getElementById('confirmTypedInput').value||'').trim();
+      if(typed !== requireText){ document.getElementById('confirmErr').textContent = "Doesn't match exactly — please retype it."; return; }
+    }
+    closeModal();
+    onConfirm();
+  };
+}
+
+function render(view){
+  const area = document.getElementById('mainArea');
+  if(view==='Dashboard') return renderDashboard(area);
+  if(view==='Applications') return renderApplications(area);
+  if(view==='Students') return renderStudents(area);
+  if(view==='Books') return renderBooks(area);
+  if(view==='Requests') return renderRequests(area);
+  if(view==='Reservations') return renderReservations(area);
+  if(view==='Announcements') return renderAnnouncements(area);
+  if(view==='Staff') return renderStaff(area);
+  if(view==='Settings') return renderSettings(area);
+}
+function updateApplicationsBadge(){
+  const badge = document.getElementById('appPendingBadge');
+  if(!badge || CURRENT.role !== 'registrar') return;
+  const n = LIB.listApplications().filter(a => a.status === 'pending').length;
+  badge.textContent = n;
+  badge.classList.toggle('hidden', n === 0);
+}
+
+/* ---- shared: Gender + Ethiopian-calendar birth date fields (used by Register/Edit Student) ---- */
+function genderFieldHtml(prefix, gender){
+  return `<div class="field"><label>Gender</label>
+    <select id="${prefix}Gender">
+      <option value="">— Select —</option>
+      <option value="male" ${gender==='male'?'selected':''}>Male</option>
+      <option value="female" ${gender==='female'?'selected':''}>Female</option>
+    </select>
+  </div>`;
+}
+function ecBirthFieldHtml(prefix, ec){
+  const curYear = LIB.ethToday().year;
+  const years = [];
+  for(let y = curYear; y >= curYear - 90; y--) years.push(y); // covers students down to newborn staff/records up to 90 yrs back
+  return `<div class="field"><label>Birth Date (የልደት ቀን — Ethiopian Calendar)</label>
+    <div class="grid cols-3">
+      <select id="${prefix}EcDay" aria-label="Day"></select>
+      <select id="${prefix}EcMonth" aria-label="Month">
+        ${LIB.ETH_MONTHS.map(m=>`<option value="${m.n}" ${ec&&Number(ec.month)===m.n?'selected':''}>${m.am}</option>`).join('')}
+      </select>
+      <select id="${prefix}EcYear" aria-label="Year">
+        <option value="">ዓ.ም / Year</option>
+        ${years.map(y=>`<option value="${y}" ${ec&&Number(ec.year)===y?'selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>
+  </div>`;
+}
+// Repopulates the day dropdown to match the selected month/year — ጳጉሜ
+// (Pagume, month 13) only ever offers 5 days, or 6 in an Ethiopian leap year.
+function wireEcBirthField(prefix, ec){
+  const daySel = document.getElementById(prefix+'EcDay');
+  const monthSel = document.getElementById(prefix+'EcMonth');
+  const yearSel = document.getElementById(prefix+'EcYear');
+  const refresh = () => {
+    const month = Number(monthSel.value) || 1;
+    const year = Number(yearSel.value) || LIB.ethToday().year;
+    const days = LIB.daysInEthMonth(year, month);
+    const cur = Number(daySel.value) || (ec && ec.day) || 1;
+    daySel.innerHTML = Array.from({length:days}, (_,i)=>i+1)
+      .map(d=>`<option value="${d}" ${d===cur?'selected':''}>${d}</option>`).join('');
+  };
+  monthSel.onchange = refresh;
+  yearSel.onchange = refresh;
+  refresh();
+}
+function readEcBirthField(prefix){
+  const day = Number(document.getElementById(prefix+'EcDay').value);
+  const month = Number(document.getElementById(prefix+'EcMonth').value);
+  const year = Number(document.getElementById(prefix+'EcYear').value);
+  if(!day || !month || !year) return null;
+  return { day, month, year };
+}
+
+function avatarHtml(person, size){
+  const cls = size==='lg' ? ' lg' : '';
+  if(person.photo) return `<img class="avatar${cls}" src="${LIB.escapeAttr(person.photo)}" alt="">`;
+  const initial = (person.name||'?').trim()[0] || '?';
+  return `<div class="avatar-fallback${cls}">${LIB.escapeHtml(initial)}</div>`;
+}
+
+/* ================= DASHBOARD ================= */
+/* ================= SVG CHART HELPERS =================
+   Small, dependency-free SVG chart builders (no Chart.js/CDN needed, so
+   these keep working offline inside the installed APK). Used by the
+   Registrar/Director statistics dashboard below. */
+const CHART_COLORS = { male:'#3b6fd6', female:'#d6437b', unspecified:'#9a938c', brand:'#C8102E', gold:'#d9a441' };
+
+function svgDonut(parts, size){
+  size = size || 176;
+  const stroke = Math.round(size*0.16);
+  const r = (size - stroke)/2;
+  const cx = size/2, cy = size/2;
+  const total = parts.reduce((s,p)=>s+p.value,0);
+  if(!total) return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#eee" stroke-width="${stroke}"/></svg>`;
+  const circumference = 2*Math.PI*r;
+  let acc = 0, segs = '';
+  parts.forEach(p => {
+    if(p.value <= 0) return;
+    const frac = p.value/total;
+    const dash = Math.max(frac*circumference - 1.5, 0); // tiny gap between segments
+    const gap = circumference - dash;
+    const rotate = (acc/total)*360 - 90;
+    segs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${gap}" stroke-linecap="round" transform="rotate(${rotate} ${cx} ${cy})"><title>${LIB.escapeHtml(p.label)}: ${p.value}</title></circle>`;
+    acc += p.value;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${segs}
+    <text x="${cx}" y="${cy-4}" text-anchor="middle" font-size="${Math.round(size*0.16)}" font-weight="800" fill="var(--black)">${total}</text>
+    <text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10" fill="var(--grey)">total</text>
+  </svg>`;
+}
+
+function chartLegend(parts){
+  return `<div class="chart-legend">${parts.map(p=>`<span class="chart-legend-item"><i style="background:${p.color}"></i>${LIB.escapeHtml(p.label)} (${p.value})</span>`).join('')}</div>`;
+}
+
+// Grouped vertical bar chart. categories: string[]. series: [{name,color,values:number[]}] aligned to categories.
+function svgGroupedBars(categories, series, opts){
+  opts = opts || {};
+  const W = opts.width || 640, H = opts.height || 240;
+  const padL = 34, padB = 34, padT = 14, padR = 10;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxVal = Math.max(1, ...series.flatMap(s=>s.values));
+  const niceMax = Math.ceil(maxVal*1.15) || 1;
+  const groupW = plotW / Math.max(categories.length,1);
+  const barGap = 3;
+  const barW = Math.max(4, (groupW - barGap*(series.length+1)) / series.length);
+  let bars = '', xLabels = '';
+  categories.forEach((cat, ci) => {
+    const groupX = padL + ci*groupW;
+    series.forEach((s, si) => {
+      const val = s.values[ci] || 0;
+      const barH = (val/niceMax) * plotH;
+      const x = groupX + barGap + si*(barW+barGap);
+      const y = padT + plotH - barH;
+      bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${s.color}"><title>${LIB.escapeHtml(s.name)} — ${LIB.escapeHtml(cat)}: ${val}</title></rect>`;
+      if(val > 0 && barH > 12) bars += `<text x="${(x+barW/2).toFixed(1)}" y="${(y-3).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--grey)">${val}</text>`;
+    });
+    xLabels += `<text x="${(groupX+groupW/2).toFixed(1)}" y="${H-padB+16}" text-anchor="middle" font-size="10.5" fill="var(--black)">${LIB.escapeHtml(cat)}</text>`;
+  });
+  // simple y-axis gridlines (0, mid, max)
+  let grid = '';
+  [0, 0.5, 1].forEach(f => {
+    const y = padT + plotH - f*plotH;
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#eee" stroke-width="1"/>`;
+    grid += `<text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--grey)">${Math.round(f*niceMax)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="max-width:${W}px;">${grid}${bars}${xLabels}</svg>`;
+}
+
+// Simple area/line chart for a time trend. points: [{label, value}]
+function svgLineArea(points, opts){
+  opts = opts || {};
+  const W = opts.width || 640, H = opts.height || 160;
+  const padL = 30, padB = 22, padT = 14, padR = 10;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  if(points.length < 2){
+    return `<div class="empty" style="padding:20px;">Not enough date spread yet to draw a trend line.</div>`;
+  }
+  const maxVal = Math.max(1, ...points.map(p=>p.value));
+  const niceMax = Math.ceil(maxVal*1.2) || 1;
+  const stepX = plotW / (points.length-1);
+  const coords = points.map((p,i) => [padL + i*stepX, padT + plotH - (p.value/niceMax)*plotH]);
+  const linePath = coords.map((c,i)=> (i===0?'M':'L') + c[0].toFixed(1) + ' ' + c[1].toFixed(1)).join(' ');
+  const areaPath = linePath + ` L ${coords[coords.length-1][0].toFixed(1)} ${padT+plotH} L ${coords[0][0].toFixed(1)} ${padT+plotH} Z`;
+  const dots = coords.map((c,i)=>`<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3" fill="${CHART_COLORS.brand}"><title>${LIB.escapeHtml(points[i].label)}: ${points[i].value}</title></circle>`).join('');
+  // show every Nth label to avoid crowding
+  const step = Math.max(1, Math.ceil(points.length/6));
+  const labels = coords.map((c,i)=> (i%step===0 || i===coords.length-1) ? `<text x="${c[0].toFixed(1)}" y="${H-padB+14}" text-anchor="middle" font-size="9" fill="var(--grey)">${LIB.escapeHtml(points[i].label)}</text>` : '').join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="max-width:${W}px;">
+    <path d="${areaPath}" fill="${CHART_COLORS.brand}" opacity="0.12"/>
+    <path d="${linePath}" fill="none" stroke="${CHART_COLORS.brand}" stroke-width="2"/>
+    ${dots}${labels}
+  </svg>`;
+}
+
+function renderDashboard(area){
+  if(CURRENT.role === 'library') return renderLibraryDashboard(area);
+  return renderStatsDashboard(area); // Registrar & Director both get the graphs/statistics view
+}
+
+function renderLibraryDashboard(area){
+  const db = LIB.getDB();
+  const overdue = LIB.allOverdue();
+  const pending = LIB.allPending();
+  const borrowed = LIB.allBorrowed();
+  area.innerHTML = `
+    <h2>📊 Dashboard</h2>
+    <div class="stat-row">
+      <div class="stat-box"><div class="n">${db.students.length}</div><div class="l">Registered Students</div></div>
+      <div class="stat-box"><div class="n">${db.books.length}</div><div class="l">Book Titles</div></div>
+      <div class="stat-box"><div class="n">${borrowed.length}</div><div class="l">Currently Borrowed</div></div>
+      <div class="stat-box"><div class="n" style="color:${overdue.length?'var(--danger)':'inherit'}">${overdue.length}</div><div class="l">Overdue</div></div>
+    </div>
+
+    ${pending.length ? `<div class="msg warn" style="padding:12px;border-radius:10px;margin-bottom:14px;">📥 ${pending.length} pending borrow request(s) waiting for approval — see "Requests & Loans".</div>` : ''}
+
+    <div class="section-title"><h2>⚠ Overdue students</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Student</th><th>Book</th><th>Due Date</th><th>Days Overdue</th></tr></thead><tbody>
+      ${overdue.length ? overdue.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        return `<tr class="overdue-row"><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${LIB.fmtDate(r.dueDate)}</td><td>${Math.abs(LIB.daysLeft(r.dueDate))}</td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No overdue books 🎉</td></tr>`}
+      </tbody></table>
+    </div>
+  `;
+}
+
+// Builds the gender/age/grade/section breakdowns the stats dashboard shows.
+// Every count also has an "all" column (male+female+unspecified), so the
+// numbers stay accurate even for records where gender wasn't recorded.
+function computeStudentStats(students){
+  const bump = (bucket, s) => {
+    bucket.all++;
+    if(s.gender === 'male') bucket.male++;
+    else if(s.gender === 'female') bucket.female++;
+    else bucket.unspecified++;
+  };
+  const totals = { all:0, male:0, female:0, unspecified:0 };
+  const byGrade = {}, byAge = {}, bySection = {};
+  const byDay = {};
+  students.forEach(s => {
+    bump(totals, s);
+    const g = String(s.class||'—').trim() || '—';
+    byGrade[g] = byGrade[g] || { all:0, male:0, female:0, unspecified:0 };
+    bump(byGrade[g], s);
+    const a = (s.age===null||s.age===undefined||s.age==='') ? '—' : String(s.age);
+    byAge[a] = byAge[a] || { all:0, male:0, female:0, unspecified:0 };
+    bump(byAge[a], s);
+    const sec = `${g}${String(s.section||'').trim() || '—'}`;
+    bySection[sec] = bySection[sec] || { all:0, male:0, female:0, unspecified:0, grade:g };
+    bump(bySection[sec], s);
+    const day = (s.createdAt||'').slice(0,10);
+    if(day){ byDay[day] = (byDay[day]||0) + 1; }
+  });
+  const gradeRows = Object.keys(byGrade).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(g => ({ grade:g, ...byGrade[g] }));
+  const ageRows = Object.keys(byAge).sort((a,b)=> a==='—'?1:b==='—'?-1:Number(a)-Number(b)).map(a => ({ age:a, ...byAge[a] }));
+  const sectionRows = Object.keys(bySection).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(sec => ({ section:sec, ...bySection[sec] }));
+  const trend = Object.keys(byDay).sort().map(d => ({ label: d.slice(5), value: byDay[d] })); // MM-DD
+  return { totals, gradeRows, ageRows, sectionRows, trend };
+}
+
+function renderStatsDashboard(area){
+  const db = LIB.getDB();
+  const stats = computeStudentStats(db.students);
+  // Ethiopian secondary school grades: 9, 10, 11, 12 highlighted first, then any others found.
+  const KNOWN_GRADES = ['9','10','11','12'];
+  const orderedGrades = [...KNOWN_GRADES.filter(g=>stats.gradeRows.some(r=>r.grade===g)), ...stats.gradeRows.map(r=>r.grade).filter(g=>!KNOWN_GRADES.includes(g))];
+  const gradeSeries = [
+    { name:'Male', color: CHART_COLORS.male, values: orderedGrades.map(g => (stats.gradeRows.find(r=>r.grade===g)||{}).male||0) },
+    { name:'Female', color: CHART_COLORS.female, values: orderedGrades.map(g => (stats.gradeRows.find(r=>r.grade===g)||{}).female||0) }
+  ];
+  const sectionLabels = stats.sectionRows.map(r=>r.section);
+  const sectionSeries = [
+    { name:'Male', color: CHART_COLORS.male, values: stats.sectionRows.map(r=>r.male) },
+    { name:'Female', color: CHART_COLORS.female, values: stats.sectionRows.map(r=>r.female) }
+  ];
+  const ageLabels = stats.ageRows.map(r=>r.age);
+  const ageSeries = [{ name:'Students', color: CHART_COLORS.gold, values: stats.ageRows.map(r=>r.all) }];
+  const genderParts = [
+    { label:'Male', value: stats.totals.male, color: CHART_COLORS.male },
+    { label:'Female', value: stats.totals.female, color: CHART_COLORS.female },
+    { label:'Unspecified', value: stats.totals.unspecified, color: CHART_COLORS.unspecified }
+  ];
+
+  area.innerHTML = `
+    <h2>📊 Dashboard — Statistics</h2>
+    <p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">📌 Charts and tables are best viewed on a larger screen (PC).</p>
+    <div class="stat-row">
+      <div class="stat-box"><div class="n">${db.students.length}</div><div class="l">Registered Students</div></div>
+      <div class="stat-box"><div class="n">${stats.totals.male}</div><div class="l">Male</div></div>
+      <div class="stat-box"><div class="n">${stats.totals.female}</div><div class="l">Female</div></div>
+      <div class="stat-box"><div class="n">${stats.totals.all}</div><div class="l">All</div></div>
+    </div>
+
+    <div class="section-title"><h2>⚧ Gender Split</h2></div>
+    <div class="card chart-card" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+      ${svgDonut(genderParts, 176)}
+      ${chartLegend(genderParts)}
+    </div>
+
+    <div class="section-title"><h2>🎓 Grade Comparison — Male vs Female</h2></div>
+    <div class="card chart-card">
+      ${orderedGrades.length ? svgGroupedBars(orderedGrades.map(g=>'Grade '+g), gradeSeries) : `<div class="empty">No students registered yet</div>`}
+      ${orderedGrades.length ? chartLegend([{label:'Male',value:stats.totals.male,color:CHART_COLORS.male},{label:'Female',value:stats.totals.female,color:CHART_COLORS.female}]) : ''}
+    </div>
+
+    <div class="section-title"><h2>🏫 Section Comparison (within &amp; across grades)</h2></div>
+    <div class="card chart-card">
+      ${sectionLabels.length ? svgGroupedBars(sectionLabels, sectionSeries) : `<div class="empty">No students registered yet</div>`}
+      ${sectionLabels.length ? chartLegend([{label:'Male',value:stats.totals.male,color:CHART_COLORS.male},{label:'Female',value:stats.totals.female,color:CHART_COLORS.female}]) : ''}
+    </div>
+
+    <div class="section-title"><h2>🎂 Age Distribution</h2></div>
+    <div class="card chart-card">
+      ${ageLabels.length ? svgGroupedBars(ageLabels, ageSeries) : `<div class="empty">No students registered yet</div>`}
+    </div>
+
+    <div class="section-title"><h2>📈 Registrations Over Time</h2></div>
+    <div class="card chart-card">
+      ${svgLineArea(stats.trend)}
+    </div>
+
+    <div class="section-title"><h2>🏫 Full Breakdown by Grade</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Grade</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
+      ${stats.gradeRows.length ? stats.gradeRows.map(r=>`<tr><td>Grade ${LIB.escapeHtml(r.grade)}</td><td>${r.male}</td><td>${r.female}</td><td>${r.all}</td></tr>`).join('')
+        : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No students registered yet</td></tr>`}
+      </tbody></table>
+    </div>
+
+    <div class="section-title"><h2>🏫 Full Breakdown by Section</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Grade &amp; Section</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
+      ${stats.sectionRows.length ? stats.sectionRows.map(r=>`<tr><td>${LIB.escapeHtml(r.section)}</td><td>${r.male}</td><td>${r.female}</td><td>${r.all}</td></tr>`).join('')
+        : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No students registered yet</td></tr>`}
+      </tbody></table>
+    </div>
+
+    <div class="section-title"><h2>🎂 By Age — Male / Female / All</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Age</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
+      ${stats.ageRows.length ? stats.ageRows.map(r=>`<tr><td>${LIB.escapeHtml(r.age)}</td><td>${r.male}</td><td>${r.female}</td><td>${r.all}</td></tr>`).join('')
+        : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No students registered yet</td></tr>`}
+      </tbody></table>
+    </div>
+  `;
+}
+
+/* ================= STUDENTS ================= */
+/* ================= APPLICATIONS (public enrollment queue) ================= */
+function renderApplications(area){
+  if(CURRENT.role !== 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar access only</div>`; return; }
+  const all = LIB.listApplications();
+  const pending = all.filter(a => a.status === 'pending');
+  const reviewed = all.filter(a => a.status !== 'pending');
+  const genderLabel = g => g==='male'?'Male':g==='female'?'Female':'—';
+  const cardHtml = (a, showActions) => `
+    <div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:800;font-size:15px;">${LIB.escapeHtml(a.name)}</div>
+          <div style="font-size:12px;color:var(--grey);">Ref: <b>${LIB.escapeHtml(a.referenceNumber)}</b> · Submitted ${LIB.fmtDate(a.submittedAt)}</div>
+        </div>
+        <span class="badge ${a.status==='pending'?'warn':a.status==='approved'?'ok':'danger'}">${a.status}</span>
+      </div>
+      <div class="grid cols-2" style="margin-top:10px;">
+        <div class="field"><label>Birth Date (EC)</label><div>${LIB.escapeHtml(LIB.fmtEthDate(a.ecBirth))} (age ${a.age??'—'})</div></div>
+        <div class="field"><label>Gender / Grade Applying</label><div>${genderLabel(a.gender)} · Grade ${LIB.escapeHtml(a.gradeApplying)}</div></div>
+        <div class="field"><label>Student Contact</label><div>${LIB.escapeHtml(a.studentPhone||a.studentEmail||'—')}</div></div>
+        <div class="field"><label>Home Address</label><div>${LIB.escapeHtml(a.homeAddress||'—')}</div></div>
+        <div class="field"><label>Guardian</label><div>${LIB.escapeHtml(a.guardianName)} — ${LIB.escapeHtml(a.guardianPhone)}</div></div>
+        <div class="field"><label>Existing School ID</label><div>${LIB.escapeHtml(a.existingIdIfAny||'—')}</div></div>
+      </div>
+      ${a.document ? `<a href="${a.document.dataUrl}" target="_blank" rel="noopener" class="btn sm outline" style="margin-top:6px;">📎 View Attached Document (${LIB.escapeHtml(a.document.name)})</a>` : ''}
+      ${a.status==='rejected' && a.rejectReason ? `<p style="font-size:12px;color:var(--danger);margin-top:8px;">Reason: ${LIB.escapeHtml(a.rejectReason)}</p>` : ''}
+      ${a.status==='approved' ? `<p style="font-size:12px;color:var(--ok);margin-top:8px;">✓ Approved by ${LIB.escapeHtml(a.reviewedBy)} on ${LIB.fmtDate(a.reviewedAt)}</p>` : ''}
+      ${showActions ? `
+      <div class="modal-close-row" style="margin-top:12px;">
+        <button class="btn danger sm" data-reject-app="${a.id}">✕ Reject</button>
+        <button class="btn primary sm" data-approve-app="${a.id}">✓ Approve &amp; Register</button>
+      </div>` : ''}
+    </div>`;
+
+  area.innerHTML = `
+    <h2>📝 Applications</h2>
+    <p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">Public enrollment submissions from the "Enroll" page — review, then Approve to create the real student record (you'll assign the FAN), or Reject.</p>
+    <div class="section-title"><h2>⏳ Pending (${pending.length})</h2></div>
+    ${pending.length ? pending.map(a=>cardHtml(a,true)).join('') : `<div class="empty">No pending applications right now.</div>`}
+    <div class="section-title"><h2>📜 History (${reviewed.length})</h2></div>
+    ${reviewed.length ? reviewed.map(a=>cardHtml(a,false)).join('') : `<div class="empty">No reviewed applications yet.</div>`}
+  `;
+  area.querySelectorAll('[data-approve-app]').forEach(b => b.onclick = () => approveApplicationModal(b.dataset.approveApp));
+  area.querySelectorAll('[data-reject-app]').forEach(b => b.onclick = () => rejectApplicationModal(b.dataset.rejectApp));
+}
+
+function approveApplicationModal(appId){
+  const app = LIB.listApplications().find(a => a.id === appId);
+  if(!app) return;
+  openModal(`
+    <div class="modal-box">
+      <h3>Approve &amp; Register — ${LIB.escapeHtml(app.name)}</h3>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">Check the details below, assign a FAN and section, then confirm. This creates the real student record.</p>
+      <div class="field"><label>ሙሉ ስም / Full Name</label><input id="apvName" value="${LIB.escapeAttr(app.name)}"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Class</label><input id="apvClass" value="${LIB.escapeAttr(app.gradeApplying)}"></div>
+        <div class="field"><label>Section</label><input id="apvSection" placeholder="e.g. A"></div>
+      </div>
+      <div class="grid cols-2">${genderFieldHtml('apv', app.gender)}</div>
+      ${ecBirthFieldHtml('apv', app.ecBirth)}
+      <div class="field"><label>Phone Number</label><input id="apvPhone" value="${LIB.escapeAttr(app.studentPhone||'')}"></div>
+      <div class="field"><label>Residence (Town / Kebele / Sefer)</label>
+        <div class="grid cols-3">
+          <input id="apvResTown" placeholder="Town" value="${LIB.escapeAttr(app.homeAddress||'')}">
+          <input id="apvResKebele" placeholder="Kebele">
+          <input id="apvResSefer" placeholder="Sefer">
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Family / Guardian Name</label><input id="apvGuardianName" value="${LIB.escapeAttr(app.guardianName||'')}"></div>
+        <div class="field"><label>Family Number</label><input id="apvGuardianPhone" value="${LIB.escapeAttr(app.guardianPhone||'')}"></div>
+      </div>
+      <div class="field"><label>FAN (16 digit) *</label><input id="apvFan" maxlength="16" inputmode="numeric" placeholder="Assign the school FAN"></div>
+      <div id="apvErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="apvSaveBtn">✓ Approve &amp; Create Student</button>
+      </div>
+    </div>`);
+  wireEcBirthField('apv', app.ecBirth);
+  document.getElementById('apvSaveBtn').onclick = () => {
+    const errBox = document.getElementById('apvErr');
+    const fields = {
+      name: document.getElementById('apvName').value,
+      klass: document.getElementById('apvClass').value,
+      section: document.getElementById('apvSection').value,
+      gender: document.getElementById('apvGender').value,
+      ecBirth: readEcBirthField('apv'),
+      phone: document.getElementById('apvPhone').value,
+      residency: {
+        town: document.getElementById('apvResTown').value.trim(),
+        kebele: document.getElementById('apvResKebele').value.trim(),
+        sefer: document.getElementById('apvResSefer').value.trim()
+      },
+      guardianName: document.getElementById('apvGuardianName').value,
+      guardianPhone: document.getElementById('apvGuardianPhone').value,
+      fan: document.getElementById('apvFan').value
+    };
+    const res = LIB.approveApplication(appId, fields);
+    if(!res.ok){ errBox.textContent = res.error; return; }
+    closeModal(); render('Applications');
+  };
+}
+
+function rejectApplicationModal(appId){
+  const app = LIB.listApplications().find(a => a.id === appId);
+  if(!app) return;
+  openModal(`
+    <div class="modal-box">
+      <h3>Reject Application — ${LIB.escapeHtml(app.name)}</h3>
+      <div class="field"><label>Reason (optional, shown in history only)</label><textarea id="rejReason" rows="3" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;"></textarea></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn danger" id="rejConfirmBtn">✕ Reject Application</button>
+      </div>
+    </div>`);
+  document.getElementById('rejConfirmBtn').onclick = () => {
+    LIB.rejectApplication(appId, document.getElementById('rejReason').value.trim());
+    closeModal(); render('Applications');
+  };
+}
+
+function renderStudents(area){
+  if(CURRENT.role === 'director'){ area.innerHTML = `<div class="empty">🔒 Directors don't have access to Students — that's handled by the Registrar and Library Staff.</div>`; return; }
+  area.innerHTML = `
+    <h2>🎓 Students</h2>
+    <div class="search-bar">
+      <input id="stuSearch" placeholder="Search by any part of the name, or FAN..." aria-label="Search students">
+      <select id="stuClassFilter" aria-label="Filter by class"><option value="all">ሁሉም ክፍል / All classes</option></select>
+      <button class="btn primary" id="addStuBtn">+ Register Student</button>
+    </div>
+    <div class="table-wrap card"><table><thead>
+      <tr><th></th><th>Name</th><th>Class</th><th>FAN</th><th>Status</th><th>In Hand</th><th></th></tr>
+    </thead><tbody id="stuTbody"></tbody></table></div>
+  `;
+  const classSel = document.getElementById('stuClassFilter');
+  const draw = () => {
+    const q = document.getElementById('stuSearch').value;
+    const db = LIB.getDB();
+    const classes = Array.from(new Set([
+      "9","10","11","12", // always offered, even with zero students currently in that grade
+      ...db.students.map(s=>String(s.class||'').trim()).filter(Boolean)
+    ])).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true}));
+    const curSel = classSel.value || 'all';
+    classSel.innerHTML = `<option value="all">ሁሉም ክፍል / All classes</option>` +
+      classes.map(c=>`<option value="${LIB.escapeAttr(c)}" ${c===curSel?'selected':''}>Class ${LIB.escapeHtml(c)}</option>`).join('');
+    let list = LIB.searchStudents(q);
+    if(classSel.value !== 'all') list = list.filter(s => String(s.class||'').trim() === classSel.value);
+    document.getElementById('stuTbody').innerHTML = list.map(s => {
+      const inHand = db.requests.filter(r=>r.studentId===s.id && r.status==='borrowed').length;
+      return `<tr>
+        <td>${avatarHtml(s)}</td>
+        <td><b>${LIB.escapeHtml(s.name)}</b></td>
+        <td>${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''}</td>
+        <td>${LIB.escapeHtml(s.fan)}</td>
+        <td>${s.activated?'<span class="badge ok">Active</span>':'<span class="badge grey">Not Activated</span>'}</td>
+        <td>${inHand}</td>
+        <td class="row-actions">
+          <button class="btn sm outline" data-view-stu="${s.id}">View</button>
+          <button class="btn sm outline" data-reset-stu="${s.id}">Reset PIN</button>
+        </td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:16px;">No students found</td></tr>`;
+    document.querySelectorAll('[data-view-stu]').forEach(b=>b.onclick=()=>viewStudentModal(b.dataset.viewStu));
+    document.querySelectorAll('[data-reset-stu]').forEach(b=>b.onclick=()=>resetPinModal(b.dataset.resetStu));
+  };
+  document.getElementById('stuSearch').oninput = draw;
+  classSel.onchange = draw;
+  document.getElementById('addStuBtn').onclick = addStudentModal;
+  draw();
+}
+
+function addStudentModal(){
+  openModal(`
+    <div class="modal-box">
+      <h3>Register Student</h3>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">Only the 16-digit FAN is required — no FIN needed.</p>
+      <div class="field"><label>Full Name</label><input id="mName"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Class</label><input id="mClass" placeholder="e.g. 10"></div>
+        <div class="field"><label>Section</label><input id="mSection" placeholder="e.g. A"></div>
+      </div>
+      ${genderFieldHtml('m', '')}
+      ${ecBirthFieldHtml('m', null)}
+      <div class="field"><label>Phone Number</label><input id="mPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
+      <div class="field"><label>Residence (የመኖሪያ አድራሻ)</label>
+        <div class="grid cols-3">
+          <input id="mResTown" placeholder="Town / ከተማ">
+          <input id="mResKebele" placeholder="Kebele / ቀበሌ">
+          <input id="mResSefer" placeholder="Sefer / ሰፈር">
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Family / Guardian Name</label><input id="mGuardianName" placeholder="e.g. father/mother/guardian name"></div>
+        <div class="field"><label>Family Number</label><input id="mGuardianPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
+      </div>
+      <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16"></div>
+      <div id="mErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="mSave">Register</button>
+      </div>
+    </div>`);
+  wireEcBirthField('m', null);
+  document.getElementById('mSave').onclick = () => {
+    const res = LIB.adminRegisterStudent({
+      name: document.getElementById('mName').value,
+      klass: document.getElementById('mClass').value,
+      section: document.getElementById('mSection').value,
+      gender: document.getElementById('mGender').value,
+      ecBirth: readEcBirthField('m'),
+      phone: document.getElementById('mPhone').value,
+      residency: {
+        town: document.getElementById('mResTown').value.trim(),
+        kebele: document.getElementById('mResKebele').value.trim(),
+        sefer: document.getElementById('mResSefer').value.trim()
+      },
+      guardianName: document.getElementById('mGuardianName').value,
+      guardianPhone: document.getElementById('mGuardianPhone').value,
+      fan: document.getElementById('mFan').value
+    });
+    if(!res.ok){ document.getElementById('mErr').textContent = res.error; return; }
+    closeModal(); render('Students');
+  };
+}
+
+function viewStudentModal(id){
+  const s = LIB.getDB().students.find(x=>x.id===id);
+  const reqs = LIB.myRequests(id);
+  // Registrar and Library Staff can both fully manage student records
+  // (register, edit, delete, photo) — Director has no access to Students at all.
+  const readOnly = false;
+  openModal(`
+    <div class="modal-box">
+      <h3>${LIB.escapeHtml(s.name)}</h3>
+      <div class="avatar-row" style="margin-bottom:12px;">
+        <div id="stuPhotoBig" style="cursor:${s.photo?'zoom-in':'default'};">${avatarHtml(s,'lg')}</div>
+        <label class="btn sm outline avatar-upload">Change Photo
+          <input type="file" accept="image/*" id="stuPhotoInput">
+        </label>
+        ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}
+      </div>
+      ${s.photo?'<p class="hint" style="color:var(--grey);font-size:11px;margin:-6px 0 12px;">Tap the photo to view it full-size.</p>':''}
+      <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
+        <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}"></div>
+      </div>
+      <div class="grid cols-2">
+        ${genderFieldHtml('stu', s.gender)}
+      </div>
+      ${ecBirthFieldHtml('stu', s.ecBirth)}
+      <div class="field"><label>Phone Number</label><input id="stuPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX" value="${LIB.escapeAttr(s.phone||'')}"></div>
+      <div class="field"><label>Residence (የመኖሪያ አድራሻ)</label>
+        <div class="grid cols-3">
+          <input id="stuResTown" placeholder="Town / ከተማ" value="${LIB.escapeAttr(s.residency&&s.residency.town||'')}">
+          <input id="stuResKebele" placeholder="Kebele / ቀበሌ" value="${LIB.escapeAttr(s.residency&&s.residency.kebele||'')}">
+          <input id="stuResSefer" placeholder="Sefer / ሰፈር" value="${LIB.escapeAttr(s.residency&&s.residency.sefer||'')}">
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label>Family / Guardian Name</label><input id="stuGuardianName" value="${LIB.escapeAttr(s.guardianName||'')}"></div>
+        <div class="field"><label>Family Number</label><input id="stuGuardianPhone" inputmode="tel" value="${LIB.escapeAttr(s.guardianPhone||'')}"></div>
+      </div>
+      <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
+        <div class="field"><label>Current PIN</label><div style="font-weight:800;letter-spacing:.15em;">${s.pin ? LIB.escapeHtml(s.pin) : '— not set yet —'}</div></div>
+      </div>
+      <div id="stuEditErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="field"><label>Borrow history</label>
+        <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
+          const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
+          return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
+        }).join('<br>') : 'No history'}</div>
+      </div>
+      <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn danger" id="stuRemoveBtn">🗑 Withdraw / Remove Student</button>
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="stuSaveBtn">Save Changes</button>
+      </div>
+    </div>`);
+  const bigPhoto = document.getElementById('stuPhotoBig');
+  if(bigPhoto && s.photo) bigPhoto.onclick = () => showFullPhoto(s.photo, s.name);
+  wireEcBirthField('stu', s.ecBirth);
+  document.getElementById('stuSaveBtn').onclick = () => {
+    const errBox = document.getElementById('stuEditErr');
+    const name = document.getElementById('stuName').value.trim();
+    if(!name){ errBox.textContent = 'ሙሉ ስም ያስፈልጋል'; return; }
+    const newFan = LIB.digitsOnly(document.getElementById('stuFan').value);
+    if(newFan.length !== 16){ errBox.textContent = 'FAN 16 ዲጂት መሆን አለበት'; return; }
+    const db = LIB.getDB();
+    if(newFan !== s.fan && db.students.some(x=>x.fan===newFan)){ errBox.textContent = 'ይህ FAN ቀድሞ ተመዝግቧል'; return; }
+    const ecBirth = readEcBirthField('stu');
+    const patch = {
+      name, class: document.getElementById('stuClass').value, section: document.getElementById('stuSection').value,
+      gender: document.getElementById('stuGender').value, ecBirth, age: ecBirth ? LIB.computeAgeFromEC(ecBirth) : s.age,
+      phone: document.getElementById('stuPhone').value.trim(), fan: newFan,
+      residency: {
+        town: document.getElementById('stuResTown').value.trim(),
+        kebele: document.getElementById('stuResKebele').value.trim(),
+        sefer: document.getElementById('stuResSefer').value.trim()
+      },
+      guardianName: document.getElementById('stuGuardianName').value.trim(),
+      guardianPhone: document.getElementById('stuGuardianPhone').value.trim()
+    };
+    // Ask before applying — saving used to happen instantly on click, which
+    // is an easy way to overwrite a record by accident.
+    openConfirmModal({
+      title: 'Save these changes?',
+      message: `Update ${s.name}'s record — Class ${patch.class}${patch.section}, ${patch.gender||'gender not set'}, FAN ${patch.fan}. This will overwrite the existing record.`,
+      confirmLabel: 'Yes, Save Changes',
+      onConfirm: () => { LIB.adminEditStudent(id, patch); render('Students'); }
+    });
+  };
+  document.getElementById('stuRemoveBtn').onclick = () => {
+    openConfirmModal({
+      title: 'Remove this student?',
+      message: `This permanently deletes ${s.name}'s account, PIN, borrow history, comments, and reservations. This can't be undone.`,
+      requireText: s.name,
+      confirmLabel: '🗑 Permanently Remove',
+      danger: true,
+      onConfirm: () => { LIB.removeStudent(id); render('Students'); }
+    });
+  };
+  document.getElementById('stuPhotoInput').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.fileToResizedDataURL(f, 300, (dataUrl) => {
+      if(!dataUrl) return alert('ምስሉን ማንበብ አልተቻለም');
+      LIB.adminSetStudentPhoto(id, dataUrl);
+      closeModal(); viewStudentModal(id); render('Students');
+    });
+  };
+  const clearBtn = document.getElementById('stuPhotoClear');
+  if(clearBtn) clearBtn.onclick = () => { LIB.adminSetStudentPhoto(id, ''); closeModal(); viewStudentModal(id); render('Students'); };
+}
+
+// Full-size photo viewer — the student list only ever shows a small round
+// thumbnail, so admin asked for a way to actually see the whole picture.
+function showFullPhoto(url, name){
+  openModal(`
+    <div class="modal-box" style="text-align:center;">
+      <h3>${LIB.escapeHtml(name||'Photo')}</h3>
+      <img src="${LIB.escapeAttr(url)}" alt="" style="max-width:100%;max-height:70vh;border-radius:10px;box-shadow:var(--shadow);">
+      <div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>
+    </div>`);
+}
+
+function resetPinModal(id){
+  openModal(`
+    <div class="modal-box">
+      <h3>Reset Student PIN</h3>
+      <div class="field"><label>New 4-digit PIN</label>
+        <div style="display:flex;gap:8px;">
+          <input id="rpPin" class="pin-input" inputmode="numeric" maxlength="4" style="flex:1;">
+          <button type="button" class="btn sm outline" id="rpGen">🎲 Generate</button>
+        </div>
+      </div>
+      <div id="rpErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="rpSave">Save</button>
+      </div>
+    </div>`);
+  document.getElementById('rpGen').onclick = () => {
+    document.getElementById('rpPin').value = String(Math.floor(1000 + Math.random()*9000));
+  };
+  document.getElementById('rpSave').onclick = () => {
+    const pin = document.getElementById('rpPin').value;
+    const res = LIB.adminSetStudentPin(id, pin);
+    if(!res.ok){ document.getElementById('rpErr').textContent = res.error; return; }
+    closeModal(); render('Students');
+  };
+}
+
+/* ================= BOOKS ================= */
+function renderBooks(area){
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Books is managed by Library Staff only.</div>`; return; }
+  area.innerHTML = `
+    <h2>📚 Books</h2>
+    <div class="search-bar">
+      <input id="bkSearch" placeholder="Search title, author, or category..." aria-label="Search books">
+      <select id="bkCatFilter" aria-label="Filter by category"><option value="all">All categories</option>${LIB.CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+      <button class="btn primary" id="addBkBtn">+ Add Book</button>
+    </div>
+    <div class="grid cols-3" id="bkGrid"></div>
+  `;
+  const draw = () => {
+    const q = document.getElementById('bkSearch').value;
+    const cat = document.getElementById('bkCatFilter').value;
+    const list = LIB.searchBooks({query:q, category:cat});
+    document.getElementById('bkGrid').innerHTML = list.map(b => {
+      const stats = LIB.bookStats(b);
+      return `
+      <div class="card">
+        <div style="display:flex;gap:10px;">
+          ${b.coverUrl?`<img class="cover-thumb" src="${LIB.escapeAttr(b.coverUrl)}" alt="">`:`<div class="cover-thumb" style="display:flex;align-items:center;justify-content:center;">📕</div>`}
+          <div style="flex:1;min-width:0;">
+            <h4 style="margin-bottom:2px;">${LIB.escapeHtml(b.title)}</h4>
+            <div style="font-size:12px;color:var(--grey);margin-bottom:4px;">${LIB.escapeHtml(b.author||'')} • ${b.category}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;margin:8px 0 2px;">Available: ${stats.available}/${stats.total} &nbsp;•&nbsp; Borrowed: ${stats.borrowed} &nbsp;•&nbsp; Damaged: ${stats.damaged} &nbsp;•&nbsp; Lost: ${stats.lost}</div>
+        <div style="font-size:11.5px;color:var(--grey);margin-bottom:8px;">${LIB.escapeHtml(b.condition||'')}</div>
+        <div class="row-actions">
+          <button class="btn sm outline" data-edit-bk="${b.id}">Edit / Manage Copies</button>
+          <button class="btn sm danger" data-del-bk="${b.id}">Delete</button>
+        </div>
+      </div>`;
+    }).join('') || `<div class="empty"><span class="ic">📭</span>No books</div>`;
+    document.querySelectorAll('[data-edit-bk]').forEach(b=>b.onclick=()=>bookModal(b.dataset.editBk));
+    document.querySelectorAll('[data-del-bk]').forEach(b=>b.onclick=()=>{ if(confirm('Delete this book?')){ LIB.removeBook(b.dataset.delBk); draw(); } });
+  };
+  document.getElementById('bkSearch').oninput = draw;
+  document.getElementById('bkCatFilter').onchange = draw;
+  document.getElementById('addBkBtn').onclick = () => bookModal();
+  draw();
+}
+
+function bookModal(id){
+  const b = id ? LIB.getDB().books.find(x=>x.id===id) : null;
+  const stats = b ? LIB.bookStats(b) : null;
+  openModal(`
+    <div class="modal-box">
+      <h3>${b?'Edit Book':'Add Book'}</h3>
+      <div class="field"><label>Cover Image</label>
+        <div class="avatar-row">
+          ${b&&b.coverUrl?`<img class="cover-thumb" src="${LIB.escapeAttr(b.coverUrl)}" alt="">`:`<div class="cover-thumb" style="display:flex;align-items:center;justify-content:center;">📕</div>`}
+          <label class="btn sm outline avatar-upload">Upload<input type="file" accept="image/*" id="bCoverFile"></label>
+        </div>
+      </div>
+      <div class="field"><label>Title</label><input id="bTitle" value="${b?LIB.escapeAttr(b.title):''}"></div>
+      <div class="field"><label>Author</label><input id="bAuthor" value="${b?LIB.escapeAttr(b.author||''):''}"></div>
+      <div class="field"><label>Category</label>
+        <select id="bCat">${LIB.CATEGORIES.map(c=>`<option value="${c}" ${b&&b.category===c?'selected':''}>${c}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Total Copies</label><input id="bTotal" type="number" min="0" value="${b?stats.total:1}"></div>
+      <div class="field"><label>Condition notes</label><input id="bCond" value="${b?LIB.escapeAttr(b.condition||''):''}" placeholder="e.g. New, minor wear"></div>
+      ${b ? `<div class="field"><label>Per-copy status (click to cycle)</label>
+        <div class="copy-chip-row" id="copyChipRow">${b.copies.map((c,i)=>`<button type="button" class="copy-chip ${c.status}" data-copy="${c.id}">#${i+1} ${LIB.COPY_STATUS_LABEL[c.status]}</button>`).join('')}</div>
+      </div>` : ''}
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="bSave">${b?'Save':'Add'}</button>
+      </div>
+    </div>`);
+  let pendingCover = b ? b.coverUrl : '';
+  document.getElementById('bCoverFile').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.fileToResizedDataURL(f, 500, (dataUrl) => { if(dataUrl) pendingCover = dataUrl; });
+  };
+  if(b){
+    document.querySelectorAll('#copyChipRow [data-copy]').forEach(chip => {
+      chip.onclick = () => {
+        const order = ['available','borrowed','damaged','lost'];
+        const cur = b.copies.find(c=>c.id===chip.dataset.copy).status;
+        const next = order[(order.indexOf(cur)+1) % order.length];
+        LIB.setCopyStatus(b.id, chip.dataset.copy, next);
+        closeModal(); bookModal(b.id);
+      };
+    });
+  }
+  document.getElementById('bSave').onclick = () => {
+    const payload = {
+      title: document.getElementById('bTitle').value,
+      author: document.getElementById('bAuthor').value,
+      category: document.getElementById('bCat').value,
+      condition: document.getElementById('bCond').value,
+      coverUrl: pendingCover,
+      totalCopies: document.getElementById('bTotal').value
+    };
+    if(b) LIB.editBook(b.id, payload); else {
+      LIB.addBook(payload);
+      const newTitle = payload.title;
+      LIB.postAnnouncement({ title:'📗 አዲስ መጽሐፍ ደርሷል', body:`"${newTitle}" አሁን በቤተ-መጻሕፍት ውስጥ ይገኛል!`,
+        mediaUrl:'', mediaType:'', postedBy: CURRENT.name, postedByRole: CURRENT.role });
+    }
+    closeModal(); render('Books');
+  };
+}
+
+/* ================= REQUESTS & LOANS ================= */
+function renderRequests(area){
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Requests & Loans is managed by Library Staff only.</div>`; return; }
+  const db = LIB.getDB();
+  const pending = LIB.allPending();
+  const borrowed = LIB.allBorrowed();
+  area.innerHTML = `
+    <h2>📥 Requests & Loans</h2>
+    <div class="tabs">
+      <button class="tab-btn active" data-t="pending">Pending Approval (${pending.length})</button>
+      <button class="tab-btn" data-t="borrowed">Currently Borrowed (${borrowed.length})</button>
+    </div>
+    <div id="reqPanel"></div>
+  `;
+  const drawPending = () => {
+    document.getElementById('reqPanel').innerHTML = `
+      <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Requested</th><th></th></tr></thead><tbody>
+      ${pending.length ? pending.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        return `<tr><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${LIB.fmtDate(r.requestedAt)}</td>
+          <td class="row-actions"><button class="btn sm primary" data-appr="${r.id}">Approve</button><button class="btn sm danger" data-rej="${r.id}">Reject</button></td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No pending requests</td></tr>`}
+      </tbody></table></div>`;
+    document.querySelectorAll('[data-appr]').forEach(b=>b.onclick=()=>{ LIB.approveRequest(b.dataset.appr, CURRENT.name); render('Requests'); });
+    document.querySelectorAll('[data-rej]').forEach(b=>b.onclick=()=>{ LIB.rejectRequest(b.dataset.rej); render('Requests'); });
+  };
+  const drawBorrowed = () => {
+    document.getElementById('reqPanel').innerHTML = `
+      <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Due Date</th><th></th></tr></thead><tbody>
+      ${borrowed.length ? borrowed.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        const overdue = LIB.isOverdue(r.dueDate);
+        return `<tr class="${overdue?'overdue-row':''}"><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td>
+          <td>${LIB.fmtDate(r.dueDate)}</td>
+          <td class="row-actions">
+            <button class="btn sm outline" data-adjust="${r.id}">Adjust Due</button>
+            <button class="btn sm primary" data-return="${r.id}">Mark Returned</button>
+            <button class="btn sm danger" data-return-dmg="${r.id}">Returned Damaged</button>
+          </td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No active loans</td></tr>`}
+      </tbody></table></div>`;
+    document.querySelectorAll('[data-return]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.return, false); render('Requests'); });
+    document.querySelectorAll('[data-return-dmg]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.returnDmg, true); render('Requests'); });
+    document.querySelectorAll('[data-adjust]').forEach(b=>b.onclick=()=>adjustDueModal(b.dataset.adjust));
+  };
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.onclick = () => {
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      btn.dataset.t==='pending' ? drawPending() : drawBorrowed();
+    };
+  });
+  drawPending();
+}
+
+function adjustDueModal(reqId){
+  const r = LIB.getDB().requests.find(x=>x.id===reqId);
+  openModal(`
+    <div class="modal-box">
+      <h3>Adjust Due Date</h3>
+      <div class="field"><label>New due date</label><input id="newDue" type="date" value="${r.dueDate?r.dueDate.slice(0,10):''}"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="dueSave">Save</button>
+      </div>
+    </div>`);
+  document.getElementById('dueSave').onclick = () => {
+    const v = document.getElementById('newDue').value;
+    if(v) LIB.adjustDueDate(reqId, new Date(v).toISOString());
+    closeModal(); render('Requests');
+  };
+}
+
+/* ================= RESERVATIONS ================= */
+function renderReservations(area){
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Reservations is managed by Library Staff only.</div>`; return; }
+  const db = LIB.getDB();
+  area.innerHTML = `<h2>⏳ Reservations / Waitlist</h2>
+    <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Reserved On</th><th></th></tr></thead><tbody>
+    ${db.reservations.length ? db.reservations.map(r=>{
+      const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+      return `<tr><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${LIB.fmtDate(r.date)}</td>
+        <td><button class="btn sm danger" data-cancel-res="${r.id}">Cancel</button></td></tr>`;
+    }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No reservations</td></tr>`}
+    </tbody></table></div>`;
+  document.querySelectorAll('[data-cancel-res]').forEach(b=>b.onclick=()=>{ LIB.cancelReservation(b.dataset.cancelRes); render('Reservations'); });
+}
+
+/* ================= ANNOUNCEMENTS ================= */
+function renderAnnouncements(area, editId){
+  if(CURRENT.role === 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar accounts don't have access to Announcements.</div>`; return; }
+  const anns = LIB.listAnnouncements();
+  const editing = editId ? anns.find(a => a.id === editId) : null;
+  area.innerHTML = `
+    <h2>📢 Announcements</h2>
+    <div class="card">
+      <div class="tibeb-strip textured thin" style="margin:-16px -16px 14px;"></div>
+      <div class="field"><label>Title</label><input id="anTitle" value="${editing?LIB.escapeAttr(editing.title):''}"></div>
+      <div class="field"><label>Message</label><textarea id="anBody" rows="3">${editing?LIB.escapeHtml(editing.body):''}</textarea></div>
+      <div class="field"><label>Tag (who should be notified)</label>
+        <select id="anAudience">
+          <option value="all">#GENERAL — all students</option>
+          <option value="9">#GRADE9</option>
+          <option value="10">#GRADE10</option>
+          <option value="11">#GRADE11</option>
+          <option value="12">#GRADE12</option>
+        </select>
+      </div>
+      <div class="field"><label>Attach Photo / Video / File (uploads directly, like Telegram)</label>
+        <input type="file" id="anFile">
+        <div id="anFileMsg" style="font-size:11.5px;color:var(--grey);margin-top:4px;">${editing&&editing.mediaUrl?`✓ Keeping current attachment${editing.mediaName?': '+LIB.escapeHtml(editing.mediaName):''} (choose a file to replace it)`:''}</div>
+      </div>
+      <div class="field"><label>…or paste a Media URL instead (optional, used only if no file is attached)</label><input id="anMedia" placeholder="https://..." value="${editing&&editing.mediaUrl&&editing.mediaUrl.startsWith('http')?LIB.escapeAttr(editing.mediaUrl):''}"></div>
+      <div class="row-actions">
+        <button class="btn primary" id="anPost">${editing?'Save Changes':'Post Announcement'}</button>
+        ${editing?'<button class="btn outline" id="anCancelEdit">Cancel</button>':''}
+      </div>
+      <p style="font-size:11.5px;color:var(--grey);margin-top:8px;">Posts show as coming from you (${LIB.escapeHtml(CURRENT.name)}) and are labeled Director or Library Staff, so students can tell who posted what. You can only edit or delete the announcements you yourself posted.</p>
+    </div>
+    <div class="section-title"><h2>History</h2></div>
+    <div id="anList"></div>
+  `;
+  document.getElementById('anList').innerHTML = anns.map(a => {
+    const mine = a.postedById === CURRENT.id;
+    return `
+    <div class="card ann-card${editId===a.id?' editing':''}">
+      <div class="ann-meta"><span class="who">${LIB.escapeHtml(a.postedBy)}</span><span class="badge grey">${a.postedByRole}</span><span>${LIB.fmtDate(a.date)}</span>
+        <span class="badge ok">${LIB.AUDIENCE_LABEL[a.audience||'all']}</span>
+        <span class="views badge grey" title="Like Telegram/YouTube view counts">👁 ${a.views?a.views.length:0} views</span></div>
+      <h4 style="margin:0 0 4px;">${LIB.escapeHtml(a.title)}</h4>
+      <p>${LIB.escapeHtml(a.body)}</p>
+      ${a.mediaUrl ? `<div class="badge grey" style="margin-bottom:8px;">📎 ${a.mediaType==='image'?'Photo':a.mediaType==='video'?'Video':'File'} attached${a.mediaName?': '+LIB.escapeHtml(a.mediaName):''}</div>` : ''}
+      ${mine
+        ? `<div class="row-actions"><button class="btn sm outline" data-edit-an="${a.id}">✎ Edit</button><button class="btn sm danger" data-del-an="${a.id}">🗑 Delete</button></div>`
+        : `<span class="hint">🔒 Only ${LIB.escapeHtml(a.postedBy)} can edit or delete this post</span>`}
+    </div>`;
+  }).join('') || `<div class="empty">No announcements yet</div>`;
+  document.querySelectorAll('[data-del-an]').forEach(b=>b.onclick=()=>{
+    if(!confirm('Delete this announcement? This cannot be undone.')) return;
+    const res = LIB.removeAnnouncement(b.dataset.delAn, CURRENT.id);
+    if(res && res.ok===false) return alert(res.error);
+    render('Announcements');
+  });
+  document.querySelectorAll('[data-edit-an]').forEach(b=>b.onclick=()=>{ renderAnnouncements(area, b.dataset.editAn); area.scrollIntoView({behavior:'smooth'}); });
+  const cancelBtn = document.getElementById('anCancelEdit');
+  if(cancelBtn) cancelBtn.onclick = () => render('Announcements');
+
+  let pendingMedia = editing ? { url: editing.mediaUrl||'', type: editing.mediaType||'', name: editing.mediaName||'' } : { url:'', type:'', name:'' };
+  document.getElementById('anFile').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    const msg = document.getElementById('anFileMsg');
+    msg.textContent = 'Uploading...';
+    const isImg = f.type.startsWith('image/');
+    const isVid = f.type.startsWith('video/');
+    const done = (dataUrl) => {
+      if(!dataUrl){ msg.textContent = 'Could not read file'; return; }
+      pendingMedia = { url: dataUrl, type: isImg?'image':(isVid?'video':'file'), name: f.name };
+      msg.textContent = `✓ Attached: ${f.name}`;
+    };
+    if(isImg) LIB.fileToResizedDataURL(f, 1000, done); else LIB.fileToDataURL(f, done);
+  };
+  document.getElementById('anPost').onclick = () => {
+    const title = document.getElementById('anTitle').value.trim();
+    const body = document.getElementById('anBody').value.trim();
+    if(!title || !body) return alert('Title and message required');
+    const urlVal = document.getElementById('anMedia').value.trim();
+    const media = pendingMedia.url ? pendingMedia : (urlVal ? { url:urlVal, type:'image', name:'' } : { url:'', type:'', name:'' });
+    const audience = document.getElementById('anAudience').value;
+    if(editing){
+      const res = LIB.updateAnnouncement(editing.id, CURRENT.id, { title, body, mediaUrl: media.url, mediaType: media.type, mediaName: media.name, audience });
+      if(res && res.ok===false) return alert(res.error);
+    } else {
+      LIB.postAnnouncement({ title, body, mediaUrl: media.url, mediaType: media.type, mediaName: media.name,
+        audience, postedBy: CURRENT.name, postedByRole: CURRENT.role, postedById: CURRENT.id });
+    }
+    render('Announcements');
+  };
+  if(editing) document.getElementById('anAudience').value = editing.audience||'all';
+}
+
+/* ================= STAFF (registrar only) ================= */
+function renderStaff(area){
+  if(CURRENT.role !== 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar access only</div>`; return; }
+  const db = LIB.getDB();
+  area.innerHTML = `
+    <h2>🧑‍💼 Staff Accounts</h2>
+    <div class="card">
+      <div class="grid cols-2">
+        <div class="field"><label>Name</label><input id="sfName"></div>
+        <div class="field"><label>Username</label><input id="sfUser" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="field"><label>Password</label><input id="sfPw" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="field"><label>Role</label><select id="sfRole"><option value="library">Library Staff</option><option value="registrar">Registrar</option><option value="director">Director</option></select></div>
+      </div>
+      <button class="btn primary" id="sfAdd">+ Add Staff</button>
+    </div>
+    <div class="table-wrap card" style="margin-top:12px;"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead><tbody>
+      ${db.staff.map(s=>`<tr><td>${LIB.escapeHtml(s.name)}</td><td>${LIB.escapeHtml(s.username)}</td><td>${({director:'Director',library:'Library Staff',registrar:'Registrar'})[s.role]||s.role}</td>
+        <td>${s.id!==CURRENT.id?`<button class="btn sm danger" data-del-staff="${s.id}" data-del-staff-name="${LIB.escapeAttr(s.name)}">Remove</button>`:'<span class="badge grey">You</span>'}</td></tr>`).join('')}
+    </tbody></table></div>
+  `;
+  document.getElementById('sfAdd').onclick = () => {
+    const res = LIB.addStaff({ name: document.getElementById('sfName').value, username: document.getElementById('sfUser').value,
+      password: document.getElementById('sfPw').value, role: document.getElementById('sfRole').value });
+    if(!res.ok) return alert(res.error);
+    render('Staff');
+  };
+  // Confirm before removing — a bare click used to delete the account instantly,
+  // which is way too easy to trigger by an accidental tap.
+  document.querySelectorAll('[data-del-staff]').forEach(b=>b.onclick=()=>{
+    const name = b.dataset.delStaffName || 'this staff account';
+    if(!confirm(`Remove ${name}? They will no longer be able to log in. This can't be undone.`)) return;
+    const res = LIB.removeStaff(b.dataset.delStaff);
+    if(res && res.ok === false) return alert(res.error);
+    render('Staff');
+  });
+}
+
+/* ================= SETTINGS / BACKUP ================= */
+function renderSettings(area){
+  if(CURRENT.role !== 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar access only</div>`; return; }
+  const s = LIB.getSettings();
+  area.innerHTML = `
+    <h2>⚙️ Settings & Backup</h2>
+    <div class="card">
+      <h3 style="font-size:14px;">Portal</h3>
+      <div class="field"><label>Portal Title (shown in browser tab & login screens)</label><input id="stPortal" value="${LIB.escapeAttr(s.portalName)}"></div>
+      <div class="field"><label>Default Loan Period (days)</label><input id="stDue" type="number" value="${s.dueDays}"></div>
+      <button class="btn primary" id="stSave">Save Settings</button>
+    </div>
+
+    <div class="section-title"><h2>🔑 My Password</h2></div>
+    <div class="card">
+      <div class="grid cols-2">
+        <div class="field"><label>Current Password</label><input id="pwOld" type="password"></div>
+        <div class="field"><label>New Password (min 6 chars)</label><input id="pwNew" type="password"></div>
+      </div>
+      <button class="btn primary sm" id="pwSaveBtn">Change My Password</button>
+      <span id="pwMsg" style="font-size:12px;margin-inline-start:8px;"></span>
+    </div>
+
+    <div class="section-title"><h2>🧹 Demo Data</h2></div>
+    <div class="card">
+      <p>The system currently ships with a few <b>sample students, sample books, and a sample announcement</b> so you can test it. When you're ready to go live, click below to permanently delete all of that sample data. Your Settings (logo, colors) and Staff logins are kept.</p>
+      <div class="row-actions">
+        <button class="btn danger" id="clearDemoBtn">🗑 Clear All Demo/Sample Data</button>
+        <button class="btn outline" id="restoreDemoBooksBtn">↺ Restore Sample Books</button>
+      </div>
+      <p class="hint" style="margin-top:6px;">Brings back the original sample books if any were lost or deleted — safe to click any time, it never creates duplicates.</p>
+    </div>
+
+    <div class="section-title"><h2>💾 Data Backup</h2></div>
+    <div class="card">
+      <p>Download the entire database (students, books, loans, announcements) as a JSON file, or restore from a previous backup. This is your real backup — the data lives only in this browser otherwise.</p>
+      <div class="row-actions">
+        <button class="btn outline" id="expBtn">⬇ Export Backup (.json)</button>
+        <label class="btn outline" style="position:relative;overflow:hidden;">⬆ Import Backup
+          <input type="file" id="impFile" accept=".json" style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+        </label>
+      </div>
+      <div id="impMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+
+    <div class="section-title"><h2>📡 Social Channels</h2></div>
+    <div class="card">
+      <p>Mirror announcements to your school's channels for wider reach (posted manually — this just stores the links so students can find you).</p>
+      <div class="grid cols-2">
+        <div class="field"><label>Telegram channel link</label><input id="stTg" value="${LIB.escapeAttr(s.telegram)}"></div>
+        <div class="field"><label>YouTube channel link</label><input id="stYt" value="${LIB.escapeAttr(s.youtube||'')}"></div>
+      </div>
+      <button class="btn outline" id="stTgSave">Save Channels</button>
+    </div>
+  `;
+  document.getElementById('stSave').onclick = () => {
+    LIB.updateSettings({
+      portalName: document.getElementById('stPortal').value,
+      dueDays: Number(document.getElementById('stDue').value) || 14
+    });
+    LIB.applyTheme();
+    alert('Settings saved');
+  };
+  document.getElementById('pwSaveBtn').onclick = () => {
+    const res = LIB.staffChangeOwnPassword(CURRENT.id, document.getElementById('pwOld').value, document.getElementById('pwNew').value);
+    const m = document.getElementById('pwMsg');
+    if(!res.ok){ m.style.color='var(--danger)'; m.textContent = res.error; return; }
+    m.style.color='var(--ok)'; m.textContent='Password updated ✓';
+    document.getElementById('pwOld').value=''; document.getElementById('pwNew').value='';
+  };
+  document.getElementById('stTgSave').onclick = () => { LIB.updateSettings({ telegram: document.getElementById('stTg').value, youtube: document.getElementById('stYt').value }); alert('Saved'); };
+  document.getElementById('clearDemoBtn').onclick = () => {
+    if(confirm('This permanently deletes all sample students, books, loans, and announcements. This cannot be undone (unless you have a backup). Continue?')){
+      LIB.clearDemoData();
+      alert('Demo data cleared. The system is now empty and ready for your real students and books.');
+      render('Settings');
+    }
+  };
+  document.getElementById('restoreDemoBooksBtn').onclick = () => {
+    const res = LIB.restoreDemoBooks();
+    alert(res.added > 0 ? `Restored ${res.added} sample book(s).` : 'All sample books are already present — nothing to restore.');
+    render('Settings');
+  };
+  document.getElementById('expBtn').onclick = () => LIB.exportJSON();
+  document.getElementById('impFile').onchange = (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    LIB.importJSON(f, (res) => {
+      const m = document.getElementById('impMsg');
+      if(res.ok){ m.style.color='var(--ok)'; m.textContent='Restored successfully. Reloading...'; setTimeout(()=>location.reload(), 1200); }
+      else { m.style.color='var(--danger)'; m.textContent = res.error; }
+    });
+  };
+}
+
+/* ---------------- boot ---------------- */
+// Called automatically whenever the shared cloud DB changes from ANY device
+// (e.g. a student self-activates, or another staff member approves a request)
+// so this admin tab stays in sync without a manual refresh.
+window.SSSDP_REFRESH = function(){
+  if(!document.getElementById('appShell').classList.contains('hidden')){
+    const activeBtn = document.querySelector('.side-link[data-view].active');
+    render(activeBtn ? activeBtn.dataset.view : 'Dashboard');
+    updateApplicationsBadge();
+  }
+};
+// Shows any cloud-sync failure (e.g. offline, Firestore rules, or the shared
+// DB doc getting too large) as a visible banner instead of a silent console log —
+// so "a student's request never showed up" is diagnosable instead of a mystery.
+window.SSSDP_ON_SYNC_ERROR = function(msg){
+  const el = document.getElementById('syncErrorBanner');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent = '⚠️ ' + msg;
+};
+// Always-visible dot next to the admin logo — green while live on the shared
+// cloud DB, red the moment that connection drops, so "why isn't this request
+// showing up" can be answered in one glance instead of guessing.
+window.SSSDP_ON_CLOUD_STATUS = function(connected){
+  const dot = document.getElementById('cloudDot');
+  if(!dot) return;
+  dot.classList.toggle('online', !!connected);
+  dot.classList.toggle('offline', !connected);
+  dot.title = connected ? 'Cloud sync active — live' : 'Not synced to cloud — requests from students may not appear until this is fixed';
+};
+(function init(){
+  // If the cloud takes a while to answer, don't leave the spinner running with
+  // no explanation — surface a "still working on it" message with a Retry.
+  const slowTimer = setTimeout(() => {
+    const el = document.getElementById('loadingSlow');
+    if(el) el.classList.remove('hidden');
+  }, 8000);
+  LIB.ready(() => {
+    clearTimeout(slowTimer);
+    document.getElementById('cloudLoading').classList.add('hidden');
+    document.getElementById('authScreen').classList.remove('hidden');
+    const staff = LIB.currentStaff();
+    if(staff){ bootApp(); return; }
+    // No one logged in — decide whether to show the normal login form or the
+    // one-time "create Director account" setup form (fresh install, no staff yet).
+    const noStaffYet = LIB.getDB().staff.length === 0;
+    document.getElementById('setupForm').classList.toggle('hidden', !noStaffYet);
+    document.getElementById('loginForm').classList.toggle('hidden', noStaffYet);
+  });
+})();
+</script>
+</body>
+</html>
