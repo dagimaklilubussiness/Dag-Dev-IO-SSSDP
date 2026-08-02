@@ -153,16 +153,38 @@ const LIB = (() => {
   let _readyQueue = [];
   let _cloudEnabled = false;
 
-  // The DB is split across four Firestore documents so that image-heavy data
-  // (student photos, book covers, announcement attachments, application
-  // documents) can never block small, high-frequency writes like book
-  // requests or comments. See saveDB().
-  //   core         -> settings, staff, students, books   (has photos — can grow large)
-  //   activity     -> requests, reservations, comments   (small, text-only, never blocked)
-  //   feed         -> announcements                      (can have images, isolated from activity)
-  //   applications -> applications (public enrollment queue, has an attached document — isolated from everything else)
+  // The DB is split across several Firestore documents so that image-heavy data
+  // (book covers, announcement attachments, application documents) can never
+  // block small, high-frequency writes like book requests or comments. See saveDB().
+  //   core         -> settings, staff, books              (can grow with book covers)
+  //   activity     -> requests, reservations, comments    (small, text-only, never blocked)
+  //   feed         -> announcements                       (can have images, isolated from activity)
+  //   applications -> applications (public enrollment queue, has attached documents — isolated from everything else)
+  //   students_0..students_39 -> the student roster, SHARDED (see below)
+  //
+  // Students used to live inside 'core' as one array. That doesn't scale — a
+  // real secondary school can have several thousand students, and a single
+  // Firestore document is capped at ~1MB no matter what. Instead, students are
+  // spread across a fixed set of shard documents, chosen by hashing each
+  // student's own ID (see studentShardIndex). Because the shard is picked from
+  // the ID itself, no rebalancing is ever needed as students are added or
+  // removed — new students land in a effectively-random shard automatically,
+  // and 40 shards comfortably covers many thousands of students with room to
+  // spare. Existing schools migrate automatically and safely the first time
+  // anything is saved after this update (see saveDB + composeFromSlices) —
+  // there's no separate migration step to remember to run, and the student
+  // data is never at risk of being lost in between.
+  const STUDENT_SHARD_COUNT = 40;
+  function studentShardIndex(id){
+    let h = 0;
+    for(let i=0;i<id.length;i++){ h = (h*31 + id.charCodeAt(i)) >>> 0; }
+    return h % STUDENT_SHARD_COUNT;
+  }
+  function studentShardKey(i){ return "students_" + i; }
+  const STUDENT_SHARD_KEYS = Array.from({length: STUDENT_SHARD_COUNT}, (_, i) => studentShardKey(i));
+
   const SLICE_KEYS = {
-    core: ["settings", "staff", "students", "books"],
+    core: ["settings", "staff", "books"],
     activity: ["requests", "reservations", "comments", "directMessages"],
     feed: ["announcements"],
     applications: ["applications"]
@@ -172,6 +194,8 @@ const LIB = (() => {
   let _slicesLoaded = { core: false, activity: false, feed: false, applications: false };
   // Raw JSON string last known to be in Firestore for each slice — used to skip
   // writing a slice that hasn't actually changed. See saveDB() for why this matters.
+  // Shard entries (students_0..students_39) are added to these same three objects
+  // dynamically as they come online — plain JS objects, so this is safe.
   let _sliceJsonCache = { core: null, activity: null, feed: null, applications: null };
   let _cloudConnected = false; // true once at least one snapshot has come back successfully
 
@@ -181,7 +205,25 @@ const LIB = (() => {
     return o;
   }
   function composeFromSlices(){
-    return normalizeDB(Object.assign({}, _sliceCache.core, _sliceCache.activity, _sliceCache.feed));
+    const merged = Object.assign({}, _sliceCache.core, _sliceCache.activity, _sliceCache.feed, _sliceCache.applications);
+    // Before the automatic migration has run (see saveDB), the raw 'core'
+    // document still literally has a "students" field (even if it's an empty
+    // array) — that's the exact, unambiguous signal to keep trusting it, since
+    // after migration core's own write leaves that field out entirely (it's
+    // not in SLICE_KEYS.core anymore). This avoids any race with shard
+    // listeners still loading: we're never guessing "empty because migrated"
+    // vs "empty because not migrated yet" — the key's mere presence tells us.
+    if(_sliceCache.core && Object.prototype.hasOwnProperty.call(_sliceCache.core, 'students')){
+      merged.students = _sliceCache.core.students || [];
+    } else {
+      const students = [];
+      for(let i=0;i<STUDENT_SHARD_COUNT;i++){
+        const arr = _sliceCache[studentShardKey(i)];
+        if(Array.isArray(arr)) students.push.apply(students, arr);
+      }
+      merged.students = students;
+    }
+    return normalizeDB(merged);
   }
 
   function normalizeDB(db){
@@ -196,6 +238,10 @@ const LIB = (() => {
     db.comments = db.comments || [];
     db.applications = db.applications || [];
     db.directMessages = db.directMessages || [];
+    // Student profile photos were removed (storage-safety decision) — strip any
+    // leftover photo data from students registered before this change so the
+    // space is actually reclaimed the next time this loads and saves.
+    if(db.students){ db.students.forEach(s => { if(s && 'photo' in s) delete s.photo; }); }
     return db;
   }
 
@@ -213,10 +259,31 @@ const LIB = (() => {
   // the real 1MB ceiling on whichever slice is getting close, so it shows up as a
   // visible banner instead of a mystery "my request never reached admin" bug.
   const FIRESTORE_DOC_SOFT_LIMIT = 900000;
+  // Returns a { sliceName: Promise } map for every slice this call actually wrote
+  // to Firestore (skipped/unchanged slices and local-only mode are simply absent
+  // from the map). Almost every caller ignores this return value and treats the
+  // write as fire-and-forget, same as always — but a few high-stakes call sites
+  // (like submitApplication) need to know the write actually reached the server
+  // before telling the person "you're done", not just that it was queued locally.
+  // Shared by both the fixed slices above and the student shards below — writes
+  // one Firestore doc, keeps the local caches in sync, and rolls back the
+  // "already sent" marker on failure so the next save retries it automatically.
+  function writeSliceDoc(key, json){
+    _sliceJsonCache[key] = json;
+    return _fsRefs[key].set({ json, updatedAt: Date.now() })
+      .catch(err => {
+        const msg = "SSSDP: cloud save failed (" + key + ") — your last change may not have reached the admin. (" + (err && err.message ? err.message : err) + ")";
+        console.error(msg, err);
+        if(_sliceJsonCache[key] === json) _sliceJsonCache[key] = null;
+        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+        throw err;
+      });
+  }
   function saveDB(db){
     _dbCache = db;
     saveLocalCache(db); // keep the local mirror fresh for instant next-load
-    if(!_cloudEnabled || !_fsRefs.core) return;
+    const writePromises = {};
+    if(!_cloudEnabled || !_fsRefs.core) return writePromises;
     Object.keys(SLICE_KEYS).forEach(sliceName => {
       const slice = sliceOf(db, SLICE_KEYS[sliceName]);
       const json = JSON.stringify(slice);
@@ -239,19 +306,41 @@ const LIB = (() => {
       // Keep our in-memory slice cache in sync immediately so a rapid second mutate
       // (before the snapshot echoes back) composes from up-to-date data.
       _sliceCache[sliceName] = slice;
-      _sliceJsonCache[sliceName] = json;
-      _fsRefs[sliceName].set({ json, updatedAt: Date.now() })
-        .catch(err => {
-          const msg = "SSSDP: cloud save failed (" + sliceName + ") — your last change may not have reached the admin. (" + (err && err.message ? err.message : err) + ")";
-          console.error(msg, err);
-          // Roll back our "already sent" marker so the next save retries this slice
-          // instead of silently assuming it went through.
-          if(_sliceJsonCache[sliceName] === json) _sliceJsonCache[sliceName] = null;
-          window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
-        });
+      writePromises[sliceName] = writeSliceDoc(sliceName, json);
     });
+    // Students: partitioned into fixed shards by hashing each student's ID (see
+    // studentShardIndex). Re-partitions db.students on every save and only
+    // actually writes a shard whose contents changed — a normal single-student
+    // edit touches exactly one shard, same cost as the old single-array design
+    // ever was. This is also what performs the one-time, zero-downtime migration
+    // for a school upgrading from the old embedded-in-core layout: the very
+    // first save after upgrading naturally computes and writes all 40 shards
+    // from db.students (which the compose step below already resolves correctly
+    // via its legacy fallback — see composeFromSlices), and drops the old
+    // embedded copy out of 'core' at the same time (SLICE_KEYS.core no longer
+    // lists "students", so the core write above already omits it).
+    const buckets = Array.from({length: STUDENT_SHARD_COUNT}, () => []);
+    (db.students || []).forEach(s => { if(s && s.id) buckets[studentShardIndex(s.id)].push(s); });
+    buckets.forEach((list, i) => {
+      const key = studentShardKey(i);
+      if(!_fsRefs[key]) return; // shard refs not set up yet (shouldn't happen once _cloudEnabled, but be defensive)
+      const json = JSON.stringify(list);
+      if(_sliceJsonCache[key] === json){ _sliceCache[key] = list; return; }
+      if(json.length > FIRESTORE_DOC_SOFT_LIMIT){
+        const msg = "SSSDP: student shard '" + key + "' is " + Math.round(json.length/1024) + "KB — unusually large for one shard. This shouldn't normally happen; contact support if you see this repeatedly.";
+        console.error(msg);
+        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+      }
+      _sliceCache[key] = list;
+      writePromises[key] = writeSliceDoc(key, json);
+    });
+    return writePromises;
   }
   function mutate(fn){ const db = loadDB(); fn(db); saveDB(db); return db; }
+  // Same as mutate(), but also hands back the write-promise map from saveDB() —
+  // for the rare caller (see submitApplication) that needs to know a write was
+  // actually confirmed by the server, not just queued on this device.
+  function mutateConfirmed(fn){ const db = loadDB(); fn(db); return { db, writePromises: saveDB(db) }; }
 
   // Call cb once the initial cloud sync has completed (or immediately if running
   // without cloud config). Pages must wait for this before reading LIB.currentStudent()/
@@ -259,49 +348,56 @@ const LIB = (() => {
   function ready(cb){ if(_ready) cb(); else _readyQueue.push(cb); }
   function flushReady(){ const q = _readyQueue; _readyQueue = []; q.forEach(cb => { try{ cb(); }catch(e){ console.error(e); } }); }
 
-  // Attaches a live listener to each of the 3 slice docs. Once all 3 have delivered
-  // at least one snapshot, composes the merged DB and flips _ready (or, on later
-  // updates, tells the page to re-render — this is how changes made on another
-  // device/browser show up here in real time).
-  function attachSliceListeners(){
-    Object.keys(_fsRefs).forEach(sliceName => {
-      _fsRefs[sliceName].onSnapshot(snap => {
-        let rawJson = (snap.exists && snap.data() && snap.data().json) ? snap.data().json : null;
-        let data = null;
-        if(rawJson){
-          try { data = JSON.parse(rawJson); } catch(e){ data = null; }
-        }
-        _sliceCache[sliceName] = data || sliceOf(seedDB(), SLICE_KEYS[sliceName]);
-        // Remember exactly what Firestore has right now for this slice so a later
-        // saveDB() can skip re-sending it if nothing actually changed (see saveDB()).
-        _sliceJsonCache[sliceName] = rawJson || JSON.stringify(_sliceCache[sliceName]);
-        _slicesLoaded[sliceName] = true;
-        _cloudConnected = true;
-        window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(true);
-        if(_slicesLoaded.core && _slicesLoaded.activity && _slicesLoaded.feed && _slicesLoaded.applications){
-          _dbCache = composeFromSlices();
-          saveLocalCache(_dbCache);
-          if(!_ready){ _ready = true; flushReady(); }
-          else { window.SSSDP_REFRESH && window.SSSDP_REFRESH(); } // live update from another device
-        }
-      }, err => {
-        // This is the exact failure mode behind "student's request never reaches
-        // admin": if this listener errors out (rules, network, quota), writes on
-        // THIS device stop reaching the shared cloud DB entirely, silently, with
-        // only a console.error — nobody sees it happen. Surface it visibly instead.
-        const msg = "SSSDP: '" + sliceName + "' cloud sync lost — changes on this device may not reach other devices until this is fixed. Check your internet connection and Firestore security rules.";
-        console.error(msg, err);
-        _cloudConnected = false;
-        window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
-        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
-        if(!_ready){ _dbCache = loadLocalCache() || seedDB(); _ready = true; flushReady(); }
-      });
-    });
+  // Shared per-snapshot handling — same logic whether it arrived via a normal
+  // slice listener or via the special 'core' listener (which also does the
+  // one-time migration check before its first call into this function).
+  function handleSliceSnapshot(sliceName, snap){
+    let rawJson = (snap.exists && snap.data() && snap.data().json) ? snap.data().json : null;
+    let data = null;
+    if(rawJson){
+      try { data = JSON.parse(rawJson); } catch(e){ data = null; }
+    }
+    // Student shards (students_0..students_39) aren't listed in SLICE_KEYS —
+    // their content is a plain array, not a set of named top-level fields, so
+    // their "nothing here yet" default is simply [], not a seeded object.
+    const isShard = !SLICE_KEYS[sliceName];
+    _sliceCache[sliceName] = data || (isShard ? [] : sliceOf(seedDB(), SLICE_KEYS[sliceName]));
+    // Remember exactly what Firestore has right now for this slice so a later
+    // saveDB() can skip re-sending it if nothing actually changed (see saveDB()).
+    _sliceJsonCache[sliceName] = rawJson || JSON.stringify(_sliceCache[sliceName]);
+    _slicesLoaded[sliceName] = true;
+    _cloudConnected = true;
+    window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(true);
+    if(_slicesLoaded.core && _slicesLoaded.activity && _slicesLoaded.feed && _slicesLoaded.applications){
+      _dbCache = composeFromSlices();
+      saveLocalCache(_dbCache);
+      if(!_ready){ _ready = true; flushReady(); }
+      else { window.SSSDP_REFRESH && window.SSSDP_REFRESH(); } // live update from another device
+    }
+  }
+  // This is the exact failure mode behind "student's request never reaches
+  // admin": if a listener errors out (rules, network, quota), writes on THIS
+  // device stop reaching the shared cloud DB entirely, silently, with only a
+  // console.error — nobody sees it happen. Surface it visibly instead.
+  function handleSliceError(sliceName, err){
+    const msg = "SSSDP: '" + sliceName + "' cloud sync lost — changes on this device may not reach other devices until this is fixed. Check your internet connection and Firestore security rules.";
+    console.error(msg, err);
+    _cloudConnected = false;
+    window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
+    window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+    if(!_ready){ _dbCache = loadLocalCache() || seedDB(); _ready = true; flushReady(); }
+  }
+  function attachOneSliceListener(sliceName){
+    _fsRefs[sliceName].onSnapshot(snap => handleSliceSnapshot(sliceName, snap), err => handleSliceError(sliceName, err));
+  }
+  function attachSliceListeners(sliceNames){
+    (sliceNames || Object.keys(_fsRefs)).forEach(attachOneSliceListener);
   }
 
   // One-time migration: older deployments of this app stored everything in a
   // single doc at sssdp/main. If that doc exists and the new split docs don't yet,
-  // read it once and fan it out into core/activity/feed so no existing data is lost.
+  // read it once and fan it out into core/activity/feed/applications + the
+  // student shards, so no existing data is lost.
   function migrateOrSeed(fs){
     return fs.collection("sssdp").doc("main").get().then(oldSnap => {
       let full = null;
@@ -312,6 +408,12 @@ const LIB = (() => {
       const batch = fs.batch();
       Object.keys(SLICE_KEYS).forEach(sliceName => {
         batch.set(_fsRefs[sliceName], { json: JSON.stringify(sliceOf(full, SLICE_KEYS[sliceName])), updatedAt: Date.now() });
+      });
+      const buckets = Array.from({length: STUDENT_SHARD_COUNT}, () => []);
+      (full.students || []).forEach(s => { if(s && s.id) buckets[studentShardIndex(s.id)].push(s); });
+      buckets.forEach((list, i) => {
+        const key = studentShardKey(i);
+        batch.set(_fsRefs[key], { json: JSON.stringify(list), updatedAt: Date.now() });
       });
       return batch.commit();
     });
@@ -331,26 +433,55 @@ const LIB = (() => {
     try{
       firebase.initializeApp(window.FIREBASE_CONFIG);
       const fs = firebase.firestore();
+      // FIX (long loading, part 1): caches Firestore data on-device (IndexedDB) so
+      // a repeat visit can show the last-known data instantly while the live
+      // update comes in over the network in the background, instead of every
+      // single page load blocking on a fresh round trip — the difference is most
+      // noticeable on slow/unreliable connections. Safe to ignore if it fails
+      // (e.g. private browsing, or another tab already has it open) — the app
+      // still works, it just won't have this instant-cache benefit that session.
+      try { fs.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch(e){}
       _fsRefs.core = fs.collection("sssdp").doc("core");
       _fsRefs.activity = fs.collection("sssdp").doc("activity");
       _fsRefs.feed = fs.collection("sssdp").doc("feed");
       _fsRefs.applications = fs.collection("sssdp").doc("applications");
+      STUDENT_SHARD_KEYS.forEach(key => { _fsRefs[key] = fs.collection("sssdp").doc(key); });
       _cloudEnabled = true;
 
-      _fsRefs.core.get().then(coreSnap => {
-        if(coreSnap.exists){
-          attachSliceListeners();
-        } else {
-          return migrateOrSeed(fs).then(attachSliceListeners);
+      // FIX (long loading, part 2): previously this ran a one-off .get() on 'core'
+      // just to decide whether a migration was needed, and only THEN attached a
+      // fresh onSnapshot listener on all 4 docs — meaning 'core' was read twice
+      // (once via .get(), once again as the listener's own first snapshot) before
+      // the app was ever ready. Now the listener's own first delivery on 'core' IS
+      // that check, cutting one full network round trip off of every normal boot.
+      let migrationChecked = false;
+      _fsRefs.core.onSnapshot(snap => {
+        if(!migrationChecked){
+          migrationChecked = true;
+          if(!snap.exists){
+            // Brand-new project — seed/migrate once, then bring the other slices
+            // (including all the student shards) online. migrateOrSeed's batch
+            // write also re-triggers this same 'core' listener with the real
+            // data (snap.exists true this time), which is what actually
+            // processes core's own data below.
+            migrateOrSeed(fs).then(() => attachSliceListeners(['activity','feed','applications'].concat(STUDENT_SHARD_KEYS)))
+              .catch(err => {
+              const msg = "SSSDP: could not set up the cloud database — running in local-only mode. Requests/comments made here will NOT reach the admin until this is fixed. (" + (err && err.message ? err.message : err) + ")";
+              console.error(msg, err);
+              window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
+              window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
+              _dbCache = loadLocalCache() || seedDB();
+              _ready = true; flushReady();
+            });
+            return;
+          }
+          // core already existed — bring the other slices (and every student
+          // shard) online too, and let this same 'core' listener keep running
+          // below for every future snapshot.
+          attachSliceListeners(['activity','feed','applications'].concat(STUDENT_SHARD_KEYS));
         }
-      }).catch(err => {
-        const msg = "SSSDP: could not connect to the cloud database — running in local-only mode. Requests/comments made here will NOT reach the admin until this is fixed. (" + (err && err.message ? err.message : err) + ")";
-        console.error(msg, err);
-        window.SSSDP_ON_SYNC_ERROR && window.SSSDP_ON_SYNC_ERROR(msg);
-        window.SSSDP_ON_CLOUD_STATUS && window.SSSDP_ON_CLOUD_STATUS(false);
-        _dbCache = loadLocalCache() || seedDB();
-        _ready = true; flushReady();
-      });
+        handleSliceSnapshot('core', snap);
+      }, err => handleSliceError('core', err));
     } catch(e){
       const msg = "SSSDP: cloud init failed — running in local-only mode. Requests/comments made here will NOT reach the admin until this is fixed. (" + (e && e.message ? e.message : e) + ")";
       console.error(msg, e);
@@ -391,7 +522,7 @@ const LIB = (() => {
           gender: "male", ecBirth: { year: 2002, month: 5, day: 12 }, age: computeAgeFromEC({ year: 2002, month: 5, day: 12 }),
           residency: { town: "Sheno", kebele: "02", sefer: "Arada" },
           guardianName: "Kebede Alemu", guardianPhone: "0911223344",
-          activated: true, pin: "1234", photo: "",
+          activated: true, pin: "1234",
           createdAt: now
         },
         {
@@ -400,7 +531,7 @@ const LIB = (() => {
           gender: "female", ecBirth: { year: 2003, month: 2, day: 20 }, age: computeAgeFromEC({ year: 2003, month: 2, day: 20 }),
           residency: { town: "Sheno", kebele: "01", sefer: "Mekane Yesus" },
           guardianName: "Tesfaye Bekele", guardianPhone: "0922334455",
-          activated: false, pin: "", photo: "",
+          activated: false, pin: "",
           createdAt: now
         }
       ],
@@ -473,7 +604,7 @@ const LIB = (() => {
       phone: phone||"",
       residency: (residency && typeof residency==='object') ? { town: residency.town||"", kebele: residency.kebele||"", sefer: residency.sefer||"" } : { town:"", kebele:"", sefer:"" },
       guardianName: guardianName||"", guardianPhone: guardianPhone||"",
-      activated:false, pin:"", photo:"", createdAt: todayISO() };
+      activated:false, pin:"", createdAt: todayISO() };
     mutate(db => db.students.push(student));
     return { ok:true, student };
   }
@@ -487,7 +618,13 @@ const LIB = (() => {
   function genReferenceNumber(){
     return "APP-" + Date.now().toString(36).toUpperCase().slice(-6) + Math.floor(Math.random()*90+10);
   }
-  function submitApplication(data){
+  // `cb`, if given, is called ONCE with the final result AFTER the write to the
+  // cloud has actually been confirmed (or has definitively failed) — not just
+  // queued locally. This matters specifically here because a parent submitting
+  // this form has no other way to know their application really reached the
+  // school; the synchronous return value below is kept for backward
+  // compatibility but only reflects validation, not a confirmed cloud write.
+  function submitApplication(data, cb){
     const name = (data.name||"").trim();
     if(!name) return { ok:false, error:"Full legal name is required." };
     if(!data.ecBirth || !data.ecBirth.year) return { ok:false, error:"Date of birth is required." };
@@ -510,7 +647,27 @@ const LIB = (() => {
       consentInfo: !!data.consentInfo, consentPhotos: !!data.consentPhotos,
       reviewedAt: null, reviewedBy: "", rejectReason: "", linkedStudentId: ""
     };
-    mutate(db => db.applications.push(record));
+    const { writePromises } = mutateConfirmed(db => db.applications.push(record));
+    const p = writePromises['applications'];
+    if(cb){
+      if(!_cloudEnabled){
+        // No cloud configured at all — this device is fully offline-only, so
+        // there is nothing to "confirm"; the local save is all there is.
+        cb({ ok:true, referenceNumber: ref, application: record });
+      } else if(!p){
+        // Shouldn't normally happen (we just pushed a new application, so the
+        // 'applications' slice must have changed) — but if it does, don't leave
+        // the caller hanging forever.
+        cb({ ok:true, referenceNumber: ref, application: record });
+      } else {
+        p.then(() => cb({ ok:true, referenceNumber: ref, application: record }))
+         .catch(() => cb({
+           ok:false,
+           error:"Your application was filled in correctly, but we couldn't confirm it reached the school's server — please check your internet connection and press Submit again. If this keeps happening, contact the school office directly.",
+           referenceNumber: ref
+         }));
+      }
+    }
     return { ok:true, referenceNumber: ref, application: record };
   }
   function listApplications(){ return getDB().applications.slice().sort((a,b)=> (b.submittedAt||"").localeCompare(a.submittedAt||"")); }
@@ -580,6 +737,29 @@ const LIB = (() => {
   function applicationsStorageInfo(){
     const bytes = JSON.stringify(getDB().applications).length;
     return { bytes, kb: Math.round(bytes/1024), softLimitKb: Math.round(FIRESTORE_DOC_SOFT_LIMIT/1024), pctOfLimit: Math.round(100*bytes/FIRESTORE_DOC_SOFT_LIMIT) };
+  }
+  // Students are auto-migrated into their scalable shard storage the moment
+  // anything is first saved after upgrading (see saveDB) — this button just
+  // gives the Registrar a visible, immediate way to trigger that save right
+  // now for peace of mind, rather than waiting for it to happen naturally.
+  // Safe to call any time, migrated or not — it's a harmless no-op edit that
+  // just re-runs the normal save pipeline.
+  function syncStudentShardsNow(){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can do this." };
+    if(!_cloudEnabled) return { ok:false, error:"Not connected to the cloud right now — try again once you're online." };
+    mutate(db => {}); // no-op edit — saveDB() does the real work (partition + write any changed shard)
+    return { ok:true };
+  }
+  // Whether students are still being read from the old embedded 'core' field
+  // (pre-migration) or from their own scalable shards (post-migration) — shown
+  // in Settings so the Registrar can see which state the system is in.
+  function studentStorageInfo(){
+    const migrated = !(_sliceCache.core && Object.prototype.hasOwnProperty.call(_sliceCache.core, 'students'));
+    const shardCount = STUDENT_SHARD_COUNT;
+    const bytesByShard = STUDENT_SHARD_KEYS.map(key => JSON.stringify(_sliceCache[key] || []).length);
+    const maxShardKb = Math.round(Math.max.apply(null, bytesByShard.concat([0])) / 1024);
+    return { migrated, shardCount, studentCount: getDB().students.length, maxShardKb, softLimitKb: Math.round(FIRESTORE_DOC_SOFT_LIMIT/1024) };
   }
 
   // Self-activation: student proves identity with the first 4 digits of their FAN
@@ -671,12 +851,6 @@ const LIB = (() => {
     });
     return { ok:true };
   }
-  function adminSetStudentPhoto(studentId, dataUrl){
-    const actor = currentStaff();
-    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can edit student records." };
-    mutate(db => { const s = db.students.find(x=>x.id===studentId); if(s) s.photo = dataUrl || ""; });
-    return { ok:true };
-  }
   // Partial-name search: admin can find a student typing just part of the name
   // (a first name, a last name, or any fragment) — no need to type it in full.
   function searchStudents(query){
@@ -727,12 +901,17 @@ const LIB = (() => {
   function studentsToCSV(){
     const cols = ["FAN","Name","Class","Section","Gender","Age/BirthEC","Phone","Guardian Name","Guardian Phone","Residency","Status","Registered"];
     const csvEscape = v => { v = (v==null?"":String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+    // Excel auto-detects any long all-digit cell (FAN, phone numbers) as a
+    // number and switches it to scientific notation (e.g. "1E+15"), silently
+    // destroying the actual digits. Wrapping it as ="1234567890123456" is
+    // Excel's own documented way to force a cell to stay literal text.
+    const asText = v => { v = (v==null?"":String(v)); return v ? `="${v.replace(/"/g,'""')}"` : ""; };
     const rows = getDB().students.map(s => [
-      s.fan, s.name, s.class, s.section||"", s.gender||"", LIB_fmtEthDateForCSV(s.ecBirth),
-      s.phone||"", s.guardianName||"", s.guardianPhone||"", fmtResidency(s.residency),
+      asText(s.fan), s.name, s.class, s.section||"", s.gender||"", LIB_fmtEthDateForCSV(s.ecBirth),
+      asText(s.phone), s.guardianName||"", asText(s.guardianPhone), fmtResidency(s.residency),
       s.activated ? "Active" : "Not Activated", s.createdAt||""
-    ].map(csvEscape).join(","));
-    return [cols.join(","), ...rows].join("\n");
+    ].map((v,i) => i===0||i===6||i===8 ? v : csvEscape(v)).join(","));
+    return [cols.join(","), ...rows].join("\r\n");
   }
   function LIB_fmtEthDateForCSV(ecBirth){ try{ return fmtEthDate(ecBirth); }catch(e){ return ""; } }
 
@@ -746,23 +925,39 @@ const LIB = (() => {
   //     order) — that CSV *is* the portable "batch" record for students who
   //     left the school, so removing them here is what actually frees up
   //     storage instead of the roster growing forever.
+  // Shows exactly who a promotion run would (and wouldn't) touch, BEFORE it
+  // runs — "other" is every student whose class value isn't cleanly "9"/"10"/
+  // "11"/"12" (typos, blanks, an unusual value from an old import, etc.). These
+  // students are never silently skipped: the Registrar sees them by name here
+  // and can fix their class first, or leave them out on purpose.
   function previewPromotion(){
     const db = getDB();
-    const byGrade = { "9":0, "10":0, "11":0, "12":0 };
-    db.students.forEach(s => { const g = String(s.class||'').trim(); if(byGrade[g]!==undefined) byGrade[g]++; });
-    return byGrade;
+    const byGrade = { "9":[], "10":[], "11":[], "12":[] };
+    const other = [];
+    db.students.forEach(s => {
+      const g = String(s.class||'').trim();
+      if(byGrade[g]) byGrade[g].push({ id:s.id, name:s.name, fan:s.fan });
+      else other.push({ id:s.id, name:s.name, class:s.class||'(blank)' });
+    });
+    return {
+      counts: { "9":byGrade["9"].length, "10":byGrade["10"].length, "11":byGrade["11"].length, "12":byGrade["12"].length },
+      students: byGrade, other
+    };
   }
-  function promoteStudents(gradeMap){
+  function promoteStudents(gradeMap, excludeIds){
     const actor = currentStaff();
     if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can promote students." };
+    const excludeSet = new Set(excludeIds || []);
     let count = 0;
+    const skipped = []; // repeaters explicitly excluded, kept in their current grade on purpose
     mutate(db => {
       db.students.forEach(s => {
+        if(excludeSet.has(s.id)){ skipped.push({ id:s.id, name:s.name }); return; }
         const from = String(s.class||'').trim();
         if(Object.prototype.hasOwnProperty.call(gradeMap, from)){ s.class = gradeMap[from]; count++; }
       });
     });
-    return { ok:true, count };
+    return { ok:true, count, skipped };
   }
   function graduateStudents(ids){
     const actor = currentStaff();
@@ -1178,7 +1373,11 @@ const LIB = (() => {
   // a plain file any office computer can open, independent of this app.
   function downloadStudentsCSV(filenameSuffix){
     const csv = studentsToCSV();
-    const blob = new Blob([csv], { type:"text/csv" });
+    // Excel (especially on Windows) assumes ANSI/Windows-1252 for a plain CSV
+    // unless a UTF-8 byte-order-mark is present — without it, Amharic text (and
+    // even a plain "—") shows up corrupted as garbled characters. The BOM fixes
+    // that; it's invisible in any spreadsheet app and ignored by everything else.
+    const blob = new Blob(["\uFEFF" + csv], { type:"text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `sssdp-students-${filenameSuffix||new Date().toISOString().slice(0,10)}.csv`;
@@ -1217,7 +1416,8 @@ const LIB = (() => {
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
     submitApplication, listApplications, approveApplication, rejectApplication, clearApplicationDocs, compactReviewedApplications, applicationsStorageInfo,
-    adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
+    syncStudentShardsNow, studentStorageInfo,
+    adminSetStudentPin, adminEditStudent, searchStudents, removeStudent,
     autoDistributeSections, studentsToCSV, previewPromotion, promoteStudents, graduateStudents,
     setupFirstAdmin, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData, restoreDemoBooks,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,

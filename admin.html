@@ -335,9 +335,10 @@ function readEcBirthField(prefix){
   return { day, month, year };
 }
 
+// Student profile photos were removed (storage-safety decision) — always
+// shows initials now instead of trying to load a stored image.
 function avatarHtml(person, size){
   const cls = size==='lg' ? ' lg' : '';
-  if(person.photo) return `<img class="avatar${cls}" src="${LIB.escapeAttr(person.photo)}" alt="">`;
   const initial = (person.name||'?').trim()[0] || '?';
   return `<div class="avatar-fallback${cls}">${LIB.escapeHtml(initial)}</div>`;
 }
@@ -864,14 +865,7 @@ function viewStudentModal(id){
   openModal(`
     <div class="modal-box">
       <h3>${LIB.escapeHtml(s.name)}</h3>
-      <div class="avatar-row" style="margin-bottom:12px;">
-        <div id="stuPhotoBig" style="cursor:${s.photo?'zoom-in':'default'};">${avatarHtml(s,'lg')}</div>
-        <label class="btn sm outline avatar-upload">Change Photo
-          <input type="file" accept="image/*" id="stuPhotoInput">
-        </label>
-        ${s.photo?'<button class="btn sm outline" id="stuPhotoClear">Remove</button>':''}
-      </div>
-      ${s.photo?'<p class="hint" style="color:var(--grey);font-size:11px;margin:-6px 0 12px;">Tap the photo to view it full-size.</p>':''}
+      <div class="avatar-row" style="margin-bottom:12px;">${avatarHtml(s,'lg')}</div>
       <div class="field"><label>ሙሉ ስም / Full Name</label><input id="stuName" value="${LIB.escapeAttr(s.name)}"></div>
       <div class="grid cols-2">
         <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
@@ -911,8 +905,6 @@ function viewStudentModal(id){
         <button class="btn primary" id="stuSaveBtn">Save Changes</button>
       </div>
     </div>`);
-  const bigPhoto = document.getElementById('stuPhotoBig');
-  if(bigPhoto && s.photo) bigPhoto.onclick = () => showFullPhoto(s.photo, s.name);
   wireEcBirthField('stu', s.ecBirth);
   document.getElementById('stuSaveBtn').onclick = () => {
     const errBox = document.getElementById('stuEditErr');
@@ -954,27 +946,6 @@ function viewStudentModal(id){
       onConfirm: () => { LIB.removeStudent(id); render('Students'); }
     });
   };
-  document.getElementById('stuPhotoInput').onchange = (e) => {
-    const f = e.target.files[0]; if(!f) return;
-    LIB.fileToResizedDataURL(f, 300, (dataUrl) => {
-      if(!dataUrl) return alert('ምስሉን ማንበብ አልተቻለም');
-      LIB.adminSetStudentPhoto(id, dataUrl);
-      closeModal(); viewStudentModal(id); render('Students');
-    });
-  };
-  const clearBtn = document.getElementById('stuPhotoClear');
-  if(clearBtn) clearBtn.onclick = () => { LIB.adminSetStudentPhoto(id, ''); closeModal(); viewStudentModal(id); render('Students'); };
-}
-
-// Full-size photo viewer — the student list only ever shows a small round
-// thumbnail, so admin asked for a way to actually see the whole picture.
-function showFullPhoto(url, name){
-  openModal(`
-    <div class="modal-box" style="text-align:center;">
-      <h3>${LIB.escapeHtml(name||'Photo')}</h3>
-      <img src="${LIB.escapeAttr(url)}" alt="" style="max-width:100%;max-height:70vh;border-radius:10px;box-shadow:var(--shadow);">
-      <div class="modal-close-row"><button class="btn primary" onclick="closeModal()">Close</button></div>
-    </div>`);
 }
 
 function resetPinModal(id){
@@ -1475,7 +1446,7 @@ function renderSettings(area){
     <div class="card">
       <p>Bump every student up a grade (9→10, 10→11, 11→12) at the start of a new academic year. Grade 12 students don't get bumped further here — promote everyone else first, then use "Graduate Grade 12" below once you've downloaded their CSV, to archive them out and free up storage.</p>
       <div class="row-actions">
-        <button class="btn outline" id="promoteBtn">⬆ Promote 9→10, 10→11, 11→12</button>
+        <button class="btn outline" id="promoteBtn">⬆ Open Promotion Tool</button>
         <button class="btn danger" id="graduateBtn">🎓 Graduate Grade 12 (after CSV backup)</button>
       </div>
       <div id="promoteMsg" style="font-size:12.5px;margin-top:8px;"></div>
@@ -1564,6 +1535,7 @@ function renderSettings(area){
     const apps = LIB.listApplications();
     const reviewedWithDocs = apps.filter(a => a.status !== 'pending' && (a.idDoc || a.resultDoc)).length;
     const barColor = info.pctOfLimit >= 80 ? 'var(--danger)' : info.pctOfLimit >= 50 ? 'var(--warn)' : 'var(--ok)';
+    const si = LIB.studentStorageInfo();
     document.getElementById('storageCard').innerHTML = `
       <p>Applications (with attached photos) use shared storage that Firestore caps at about 1MB — this bar shows how close the Applications data is to that ceiling right now.</p>
       <div style="background:var(--off);border-radius:8px;height:10px;overflow:hidden;margin:8px 0;">
@@ -1574,6 +1546,13 @@ function renderSettings(area){
         <button class="btn outline sm" id="compactAppsBtn">🧹 Clear Photos From ${reviewedWithDocs} Reviewed Application${reviewedWithDocs===1?'':'s'}</button>
       </div>
       <p class="hint" style="margin-top:6px;">Safe to run any time — only affects applications that have already been approved or rejected. Pending applications keep their photos until reviewed.</p>
+      <hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">
+      <p style="font-size:12.5px;">
+        <b>Students:</b> ${si.studentCount} registered, spread across ${si.shardCount} storage shards
+        (fullest shard: ${si.maxShardKb}KB of a ~${si.softLimitKb}KB margin) —
+        ${si.migrated ? '<span style="color:var(--ok);">✓ using scalable storage</span>' : '<span style="color:var(--warn);">⏳ will switch over automatically on the next save</span>'}
+      </p>
+      <div class="row-actions"><button class="btn outline sm" id="syncShardsBtn">🔀 Sync Student Storage Now</button></div>
     `;
     document.getElementById('compactAppsBtn').onclick = () => {
       const res = LIB.compactReviewedApplications();
@@ -1581,18 +1560,16 @@ function renderSettings(area){
       alert(res.cleared ? `Cleared photos from ${res.cleared} application(s).` : 'Nothing to clear — no reviewed applications currently have photos attached.');
       drawStorageCard();
     };
+    document.getElementById('syncShardsBtn').onclick = () => {
+      const res = LIB.syncStudentShardsNow();
+      if(!res.ok){ alert(res.error); return; }
+      setTimeout(drawStorageCard, 600); // give the write a moment to echo back before re-reading status
+    };
   };
   drawStorageCard();
 
   // ---- Year-end promotion / graduation ----
-  document.getElementById('promoteBtn').onclick = () => {
-    const counts = LIB.previewPromotion();
-    if(!confirm(`This moves every current Grade 9 student to 10, 10→11, and 11→12.\n\nGrade 9: ${counts['9']} students\nGrade 10: ${counts['10']} students\nGrade 11: ${counts['11']} students\n(Grade 12's ${counts['12']} students are untouched here — see Graduate below.)\n\nContinue?`)) return;
-    const res = LIB.promoteStudents({ "9":"10", "10":"11", "11":"12" });
-    const m = document.getElementById('promoteMsg');
-    if(!res.ok){ m.style.color='var(--danger)'; m.textContent = res.error; return; }
-    m.style.color='var(--ok)'; m.textContent = `✓ ${res.count} students promoted.`;
-  };
+  document.getElementById('promoteBtn').onclick = () => promotionModal();
   document.getElementById('graduateBtn').onclick = () => {
     const grade12 = LIB.getDB().students.filter(s => String(s.class||'').trim() === '12');
     const m = document.getElementById('promoteMsg');
@@ -1604,6 +1581,74 @@ function renderSettings(area){
     if(!res.ok){ m.style.color='var(--danger)'; m.textContent = res.error; return; }
     m.style.color='var(--ok)'; m.textContent = `✓ ${res.removed} Grade 12 students graduated and archived to CSV.`;
     drawStorageCard();
+  };
+}
+
+// Shows exactly who will (and won't) be promoted before anything happens — no
+// student is ever silently skipped without the Registrar seeing it named here.
+function promotionModal(){
+  const preview = LIB.previewPromotion();
+  const excludeIds = new Set(); // repeaters, picked below — kept in their current grade on purpose
+  const otherHtml = preview.other.length ? `
+    <div class="badge grey" style="display:block;padding:8px 10px;margin:10px 0;">
+      ⚠️ ${preview.other.length} student(s) have a class value that isn't exactly 9, 10, 11, or 12 — they will <b>not</b> be touched by Promote:<br>
+      ${preview.other.map(s=>`${LIB.escapeHtml(s.name)} (class: "${LIB.escapeHtml(String(s.class))}")`).join(', ')}
+      <br><span class="hint">Fix their Class field in Students first if they should be included.</span>
+    </div>` : '';
+  openModal(`
+    <div class="modal-box">
+      <h3>⬆ Promote Students</h3>
+      <p class="hint" style="color:var(--grey);font-size:12.5px;">Moves 9→10, 10→11, 11→12. Grade 12 isn't touched here — use Graduate for them separately.</p>
+      <div class="grid cols-2" style="font-size:13px;margin:10px 0;">
+        <div>Grade 9: <b>${preview.counts['9']}</b> → will become 10</div>
+        <div>Grade 10: <b>${preview.counts['10']}</b> → will become 11</div>
+        <div>Grade 11: <b>${preview.counts['11']}</b> → will become 12</div>
+        <div>Grade 12: <b>${preview.counts['12']}</b> (untouched)</div>
+      </div>
+      ${otherHtml}
+      <div class="field"><label>Repeating a grade this year? Search and add them to keep them where they are</label>
+        <input id="pmRepeaterSearch" placeholder="Type a student's name or FAN..." autocomplete="off">
+        <div id="pmRepeaterResults" class="dm-stu-results"></div>
+      </div>
+      <div id="pmRepeaterList" style="margin:8px 0;"></div>
+      <div id="pmErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="pmRun">Promote Now</button>
+      </div>
+    </div>`);
+  const drawRepeaterList = () => {
+    const db = LIB.getDB();
+    const box = document.getElementById('pmRepeaterList');
+    const names = Array.from(excludeIds).map(id => db.students.find(s=>s.id===id)).filter(Boolean);
+    box.innerHTML = names.length ? names.map(s=>`<span class="badge grey" style="margin:2px 4px 2px 0;">${LIB.escapeHtml(s.name)} <button type="button" data-unrepeat="${s.id}" style="border:none;background:none;cursor:pointer;">✕</button></span>`).join('') : `<span class="hint">No repeaters added — everyone found above will be promoted.</span>`;
+    box.querySelectorAll('[data-unrepeat]').forEach(btn => btn.onclick = () => { excludeIds.delete(btn.dataset.unrepeat); drawRepeaterList(); });
+  };
+  drawRepeaterList();
+  document.getElementById('pmRepeaterSearch').oninput = (e) => {
+    const q = e.target.value.trim();
+    const box = document.getElementById('pmRepeaterResults');
+    if(!q){ box.innerHTML=''; box.classList.remove('open'); return; }
+    const results = LIB.searchStudents(q).filter(s=>!excludeIds.has(s.id)).slice(0,8);
+    box.innerHTML = results.length ? results.map(s=>`<div class="dm-stu-opt" data-pick="${s.id}"><b>${LIB.escapeHtml(s.name)}</b> — Class ${LIB.escapeHtml(String(s.class||''))}</div>`).join('') : `<div class="dm-stu-opt" style="color:var(--grey);">No student found</div>`;
+    box.classList.add('open');
+    box.querySelectorAll('[data-pick]').forEach(opt => opt.onclick = () => {
+      excludeIds.add(opt.dataset.pick);
+      document.getElementById('pmRepeaterSearch').value = '';
+      box.innerHTML=''; box.classList.remove('open');
+      drawRepeaterList();
+    });
+  };
+  document.getElementById('pmRun').onclick = () => {
+    const res = LIB.promoteStudents({ "9":"10", "10":"11", "11":"12" }, Array.from(excludeIds));
+    if(!res.ok){ document.getElementById('pmErr').textContent = res.error; return; }
+    closeModal();
+    const m = document.getElementById('promoteMsg');
+    if(m){
+      m.style.color='var(--ok)';
+      m.textContent = `✓ ${res.count} students promoted` + (res.skipped.length ? `, ${res.skipped.length} kept in their current grade (repeaters).` : '.') +
+        (preview.other.length ? ` ${preview.other.length} student(s) with an unrecognized class value were left untouched — check Students to fix them.` : '');
+    }
   };
 }
 

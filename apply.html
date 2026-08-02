@@ -80,6 +80,8 @@
 
 <div id="applyPageBody" class="hidden">
 
+<div id="syncErrorBanner" style="display:none;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;padding:10px 14px;margin:10px;border-radius:8px;font-size:13px;"></div>
+
 <div class="apply-hero">
   <div class="apply-hero-top">
     <img src="school-logo.jpg" alt="" onerror="this.style.display='none'">
@@ -213,6 +215,15 @@
 <script src="firebase-config.js"></script>
 <script src="app.js"></script>
 <script>
+// Shows any cloud-sync failure (offline, Firestore rules, or a shared doc
+// getting too large) as a visible banner — same pattern as index.html/admin.html.
+window.SSSDP_ON_SYNC_ERROR = function(msg){
+  const el = document.getElementById('syncErrorBanner');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent = '⚠️ ' + msg;
+};
+
 document.getElementById('yearNow').textContent = new Date().getFullYear();
 
 // ---- Ethiopian calendar birth date picker (day/month/year), same pattern as admin.html ----
@@ -293,12 +304,21 @@ function initApplyPage(){
   document.getElementById('applyForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const submitErr = document.getElementById('submitErr');
+    const submitBtn = document.getElementById('submitBtn');
     submitErr.textContent = '';
     if(LIB.isEnrollmentClosed()){ submitErr.textContent = "Enrollment is closed — the deadline has passed. Please contact the school office."; return; }
     const ecBirth = { day: Number(document.getElementById('apEcDay').value), month: Number(document.getElementById('apEcMonth').value), year: Number(document.getElementById('apEcYear').value) };
     if(!ecBirth.day || !ecBirth.month || !ecBirth.year){ submitErr.textContent = 'Please complete the date of birth.'; return; }
     const gradeApplying = document.getElementById('apGrade').value;
     if(gradeApplying === '9' && !pendingResultDoc){ submitErr.textContent = 'Please attach a photo of the Grade 8 Ministry result for Grade 9 applicants.'; return; }
+
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = 'Submitting…';
+
+    // The callback here only fires AFTER the write is actually confirmed by the
+    // school's server (or has definitively failed) — the success screen is not
+    // shown until then, so "it looked like it worked" can no longer happen.
     const res = LIB.submitApplication({
       name: document.getElementById('apName').value,
       ecBirth,
@@ -315,11 +335,22 @@ function initApplyPage(){
       resultDoc: pendingResultDoc,
       consentInfo: document.getElementById('apConsentInfo').checked,
       consentPhotos: document.getElementById('apConsentPhotos').checked
+    }, (finalRes) => {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+      if(!finalRes.ok){ submitErr.textContent = finalRes.error; return; }
+      submitErr.textContent = '';
+      document.getElementById('applyForm').classList.add('hidden');
+      document.getElementById('successCard').classList.remove('hidden');
+      document.getElementById('refNumberOut').textContent = finalRes.referenceNumber;
     });
-    if(!res.ok){ submitErr.textContent = res.error; return; }
-    document.getElementById('applyForm').classList.add('hidden');
-    document.getElementById('successCard').classList.remove('hidden');
-    document.getElementById('refNumberOut').textContent = res.referenceNumber;
+    if(!res.ok){
+      // Synchronous validation failure (e.g. a field check) — no network round
+      // trip needed, fails immediately, before the callback above would ever run.
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+      submitErr.textContent = res.error;
+    }
   });
 }
 

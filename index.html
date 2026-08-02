@@ -271,9 +271,10 @@ function renderView(name){
   if(name === 'Profile') renderProfile(student);
 }
 
+// Student profile photos were removed (storage-safety decision) — always
+// shows initials now instead of trying to load a stored image.
 function avatarHtml(student, size){
   const cls = size==='lg' ? ' lg' : '';
-  if(student.photo) return `<img class="avatar${cls}" src="${LIB.escapeAttr(student.photo)}" alt="">`;
   const initial = (student.name||'?').trim()[0] || '?';
   return `<div class="avatar-fallback${cls}">${LIB.escapeHtml(initial)}</div>`;
 }
