@@ -90,6 +90,7 @@
     <button class="side-link" data-view="Requests">📥 Requests & Loans</button>
     <button class="side-link" data-view="Reservations">⏳ Reservations</button>
     <button class="side-link" data-view="Announcements">📢 Announcements</button>
+    <button class="side-link" data-view="Messages" id="navMessages">✉️ Messages</button>
     <button class="side-link" data-view="Staff" id="navStaff">🧑‍💼 Staff Accounts</button>
     <button class="side-link" data-view="Settings">⚙️ Settings & Backup</button>
     <button class="side-link" id="logoutBtn" style="margin-top:8px;">🚪 Logout</button>
@@ -192,19 +193,28 @@ function bootApp(){
     document.querySelector('.side-link[data-view="Settings"]').classList.add('hidden');
     document.getElementById('navApplications').classList.add('hidden'); // Applications review is Registrar-only too
   }
+  // Students (register / edit / reset PIN) is Registrar-only — Library Staff
+  // no longer has access, so a librarian can't create or alter student records.
+  if(CURRENT.role !== 'registrar'){
+    document.querySelector('.side-link[data-view="Students"]').classList.add('hidden');
+  }
+  // Messages (private one-to-one notes to a single student) is Library-Staff-only.
+  if(CURRENT.role !== 'library'){
+    document.getElementById('navMessages').classList.add('hidden');
+  }
   // Registrar's own job is student registration only — no Books, Requests &
-  // Loans, Reservations, or Announcements. Dashboard is also swapped for a
-  // registration-focused stats view (see renderDashboard).
+  // Loans, Reservations, Announcements, or Messages. Dashboard is also
+  // swapped for a registration-focused stats view (see renderDashboard).
   if(CURRENT.role === 'registrar'){
-    ['Books','Requests','Reservations','Announcements'].forEach(v => {
+    ['Books','Requests','Reservations','Announcements','Messages'].forEach(v => {
       document.querySelector(`.side-link[data-view="${v}"]`).classList.add('hidden');
     });
   }
   // Director is deliberately narrow: Announcements + Dashboard, nothing else.
-  // Books/Requests & Loans/Reservations are Library Staff's job exclusively;
-  // Students is Registrar/Library's job.
+  // Books/Requests & Loans/Reservations/Messages are Library Staff's job
+  // exclusively; Students is the Registrar's job.
   if(CURRENT.role === 'director'){
-    ['Students','Books','Requests','Reservations'].forEach(v => {
+    ['Books','Requests','Reservations','Messages'].forEach(v => {
       document.querySelector(`.side-link[data-view="${v}"]`).classList.add('hidden');
     });
   }
@@ -260,6 +270,7 @@ function render(view){
   if(view==='Requests') return renderRequests(area);
   if(view==='Reservations') return renderReservations(area);
   if(view==='Announcements') return renderAnnouncements(area);
+  if(view==='Messages') return renderMessages(area);
   if(view==='Staff') return renderStaff(area);
   if(view==='Settings') return renderSettings(area);
 }
@@ -512,8 +523,7 @@ function renderStatsDashboard(area){
   const ageSeries = [{ name:'Students', color: CHART_COLORS.gold, values: stats.ageRows.map(r=>r.all) }];
   const genderParts = [
     { label:'Male', value: stats.totals.male, color: CHART_COLORS.male },
-    { label:'Female', value: stats.totals.female, color: CHART_COLORS.female },
-    { label:'Unspecified', value: stats.totals.unspecified, color: CHART_COLORS.unspecified }
+    { label:'Female', value: stats.totals.female, color: CHART_COLORS.female }
   ];
 
   area.innerHTML = `
@@ -605,7 +615,10 @@ function renderApplications(area){
         <div class="field"><label>Guardian</label><div>${LIB.escapeHtml(a.guardianName)} — ${LIB.escapeHtml(a.guardianPhone)}</div></div>
         <div class="field"><label>Existing School ID</label><div>${LIB.escapeHtml(a.existingIdIfAny||'—')}</div></div>
       </div>
-      ${a.document ? `<a href="${a.document.dataUrl}" target="_blank" rel="noopener" class="btn sm outline" style="margin-top:6px;">📎 View Attached Document (${LIB.escapeHtml(a.document.name)})</a>` : ''}
+      <div class="row-actions" style="margin-top:6px;">
+        ${a.idDoc ? `<a href="${a.idDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">🪪 View National ID</a>` : `<span class="hint">🪪 No National ID attached</span>`}
+        ${a.resultDoc ? `<a href="${a.resultDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">📄 View Grade 8 Result</a>` : (String(a.gradeApplying)==='9' ? `<span class="hint" style="color:var(--danger);">📄 Grade 8 result missing</span>` : '')}
+      </div>
       ${a.status==='rejected' && a.rejectReason ? `<p style="font-size:12px;color:var(--danger);margin-top:8px;">Reason: ${LIB.escapeHtml(a.rejectReason)}</p>` : ''}
       ${a.status==='approved' ? `<p style="font-size:12px;color:var(--ok);margin-top:8px;">✓ Approved by ${LIB.escapeHtml(a.reviewedBy)} on ${LIB.fmtDate(a.reviewedAt)}</p>` : ''}
       ${showActions ? `
@@ -704,12 +717,14 @@ function rejectApplicationModal(appId){
 }
 
 function renderStudents(area){
-  if(CURRENT.role === 'director'){ area.innerHTML = `<div class="empty">🔒 Directors don't have access to Students — that's handled by the Registrar and Library Staff.</div>`; return; }
+  if(CURRENT.role !== 'registrar'){ area.innerHTML = `<div class="empty">🔒 Students is managed by the Registrar only.</div>`; return; }
   area.innerHTML = `
     <h2>🎓 Students</h2>
     <div class="search-bar">
       <input id="stuSearch" placeholder="Search by any part of the name, or FAN..." aria-label="Search students">
       <select id="stuClassFilter" aria-label="Filter by class"><option value="all">ሁሉም ክፍል / All classes</option></select>
+      <button class="btn outline" id="distributeStuBtn">🎲 Auto-Distribute Sections</button>
+      <button class="btn outline" id="exportStuBtn">⬇ Export CSV</button>
       <button class="btn primary" id="addStuBtn">+ Register Student</button>
     </div>
     <div class="table-wrap card"><table><thead>
@@ -750,6 +765,8 @@ function renderStudents(area){
   document.getElementById('stuSearch').oninput = draw;
   classSel.onchange = draw;
   document.getElementById('addStuBtn').onclick = addStudentModal;
+  document.getElementById('distributeStuBtn').onclick = distributeSectionsModal;
+  document.getElementById('exportStuBtn').onclick = () => LIB.downloadStudentsCSV();
   draw();
 }
 
@@ -807,11 +824,42 @@ function addStudentModal(){
   };
 }
 
+function distributeSectionsModal(){
+  const db = LIB.getDB();
+  const grades = Array.from(new Set(db.students.map(s=>String(s.class||'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b, undefined, {numeric:true}));
+  openModal(`
+    <div class="modal-box">
+      <h3>🎲 Auto-Distribute Sections</h3>
+      <p class="hint" style="color:var(--grey);font-size:12px;margin-bottom:10px;">Spreads a grade's students evenly and randomly across sections — a fair mix rather than alphabetical order. You can still move any individual student afterward from their profile (Edit → Section) for special cases.</p>
+      <div class="field"><label>Grade</label>
+        <select id="dsGrade">${grades.length ? grades.map(g=>`<option value="${LIB.escapeAttr(g)}">Class ${LIB.escapeHtml(g)}</option>`).join('') : `<option value="">— No students yet —</option>`}</select>
+      </div>
+      <div class="field"><label>Sections (comma-separated)</label><input id="dsSections" placeholder="e.g. A, B, C" value="A, B"></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:10px 0;">
+        <input type="checkbox" id="dsOnlyUnassigned" checked> Only students who don't have a section yet
+      </label>
+      <div id="dsErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="dsRun">Distribute</button>
+      </div>
+    </div>`);
+  document.getElementById('dsRun').onclick = () => {
+    const grade = document.getElementById('dsGrade').value;
+    const sections = document.getElementById('dsSections').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const onlyUnassigned = document.getElementById('dsOnlyUnassigned').checked;
+    const res = LIB.autoDistributeSections(grade, sections, { onlyUnassigned });
+    if(!res.ok){ document.getElementById('dsErr').textContent = res.error; return; }
+    closeModal(); render('Students');
+    alert(`✓ ${res.count} students distributed across ${res.sections.join(', ')}.`);
+  };
+}
+
 function viewStudentModal(id){
   const s = LIB.getDB().students.find(x=>x.id===id);
   const reqs = LIB.myRequests(id);
-  // Registrar and Library Staff can both fully manage student records
-  // (register, edit, delete, photo) — Director has no access to Students at all.
+  // Students is Registrar-only now (see renderStudents' guard above), so this
+  // modal is only ever reachable by the Registrar — always fully editable.
   const readOnly = false;
   openModal(`
     <div class="modal-box">
@@ -1001,7 +1049,7 @@ function renderBooks(area){
 }
 
 function bookModal(id){
-  const b = id ? LIB.getDB().books.find(x=>x.id===id) : null;
+  let b = id ? LIB.getDB().books.find(x=>x.id===id) : null;
   const stats = b ? LIB.bookStats(b) : null;
   openModal(`
     <div class="modal-box">
@@ -1033,15 +1081,28 @@ function bookModal(id){
     LIB.fileToResizedDataURL(f, 500, (dataUrl) => { if(dataUrl) pendingCover = dataUrl; });
   };
   if(b){
-    document.querySelectorAll('#copyChipRow [data-copy]').forEach(chip => {
-      chip.onclick = () => {
-        const order = ['available','borrowed','damaged','lost'];
-        const cur = b.copies.find(c=>c.id===chip.dataset.copy).status;
-        const next = order[(order.indexOf(cur)+1) % order.length];
-        LIB.setCopyStatus(b.id, chip.dataset.copy, next);
-        closeModal(); bookModal(b.id);
-      };
-    });
+    const wireCopyChips = () => {
+      document.querySelectorAll('#copyChipRow [data-copy]').forEach(chip => {
+        chip.onclick = () => {
+          b = LIB.getDB().books.find(x=>x.id===b.id) || b; // pick up any change from another device first
+          const order = ['available','borrowed','damaged','lost'];
+          const copy = b.copies.find(c=>c.id===chip.dataset.copy);
+          if(!copy) return;
+          const next = order[(order.indexOf(copy.status)+1) % order.length];
+          LIB.setCopyStatus(b.id, chip.dataset.copy, next);
+          // Re-render just the chip row from the (now-updated) live book — b is the
+          // same object reference the shared DB holds, so it already reflects the
+          // change. This avoids closing/reopening the whole modal, which used to
+          // silently throw away anything you'd typed into Title/Author/etc. above
+          // and made the cycle feel "stuck" — a click that visibly did nothing to
+          // the field you were actually looking at.
+          document.getElementById('copyChipRow').innerHTML =
+            b.copies.map((c,i)=>`<button type="button" class="copy-chip ${c.status}" data-copy="${c.id}">#${i+1} ${LIB.COPY_STATUS_LABEL[c.status]}</button>`).join('');
+          wireCopyChips();
+        };
+      });
+    };
+    wireCopyChips();
   }
   document.getElementById('bSave').onclick = () => {
     const payload = {
@@ -1242,6 +1303,90 @@ function renderAnnouncements(area, editId){
   if(editing) document.getElementById('anAudience').value = editing.audience||'all';
 }
 
+/* ================= MESSAGES (Library Staff -> one student) ================= */
+// Private, one-to-one notes/warnings — separate from #GENERAL/#GRADE announcements
+// above. Only shows up in the recipient's own Inbox on index.html, never on Home
+// and never to any other student. Library Staff only (enforced in app.js too).
+function renderMessages(area, preselectStudentId){
+  if(CURRENT.role !== 'library'){ area.innerHTML = `<div class="empty">🔒 Messages is managed by Library Staff only.</div>`; return; }
+  const db = LIB.getDB();
+  const msgs = LIB.listDirectMessages();
+  area.innerHTML = `
+    <h2>✉️ Messages</h2>
+    <p class="hint" style="color:var(--grey);font-size:12.5px;margin:-4px 0 14px;">Send a private note to one student — shown only in their Inbox (e.g. "please return your book, it's overdue"). This is different from Announcements, which everyone in the audience can see.</p>
+    <div class="card">
+      <div class="tibeb-strip textured thin" style="margin:-16px -16px 14px;"></div>
+      <div class="field"><label>To (search by name or FAN)</label>
+        <input id="dmStuSearch" placeholder="Start typing a student's name..." autocomplete="off">
+        <div id="dmStuResults" class="dm-stu-results"></div>
+      </div>
+      <div id="dmSelectedBox"></div>
+      <div class="field"><label>Title</label><input id="dmTitle" placeholder="e.g. Overdue book reminder"></div>
+      <div class="field"><label>Message</label><textarea id="dmBody" rows="3" placeholder="Write the message..."></textarea></div>
+      <div class="row-actions"><button class="btn primary" id="dmSend">Send Message</button></div>
+      <div id="dmErr" style="color:var(--danger);font-size:12.5px;margin-top:6px;"></div>
+    </div>
+    <div class="section-title"><h2>History</h2></div>
+    <div id="dmList"></div>
+  `;
+  let selectedId = preselectStudentId || '';
+  const renderSelected = () => {
+    const box = document.getElementById('dmSelectedBox');
+    const s = selectedId && db.students.find(x=>x.id===selectedId);
+    box.innerHTML = s
+      ? `<div class="badge ok" style="margin-bottom:10px;">Sending to: ${LIB.escapeHtml(s.name)} — Class ${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''} <button type="button" id="dmClearStu" style="margin-inline-start:8px;">✕</button></div>`
+      : '';
+    const clearBtn = document.getElementById('dmClearStu');
+    if(clearBtn) clearBtn.onclick = () => { selectedId=''; document.getElementById('dmStuSearch').value=''; renderSelected(); };
+  };
+  renderSelected();
+  document.getElementById('dmStuSearch').oninput = (e) => {
+    const q = e.target.value.trim();
+    const box = document.getElementById('dmStuResults');
+    if(!q){ box.innerHTML=''; box.classList.remove('open'); return; }
+    const results = LIB.searchStudents(q).slice(0,8);
+    box.innerHTML = results.length ? results.map(s=>`<div class="dm-stu-opt" data-pick="${s.id}"><b>${LIB.escapeHtml(s.name)}</b> — Class ${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''}</div>`).join('')
+      : `<div class="dm-stu-opt" style="color:var(--grey);">No student found</div>`;
+    box.classList.add('open');
+    document.querySelectorAll('[data-pick]').forEach(opt => {
+      opt.onclick = () => {
+        selectedId = opt.dataset.pick;
+        document.getElementById('dmStuSearch').value = '';
+        box.innerHTML=''; box.classList.remove('open');
+        renderSelected();
+      };
+    });
+  };
+  document.getElementById('dmSend').onclick = () => {
+    const errBox = document.getElementById('dmErr');
+    errBox.textContent = '';
+    if(!selectedId){ errBox.textContent = 'Please pick a student first.'; return; }
+    const title = document.getElementById('dmTitle').value;
+    const body = document.getElementById('dmBody').value;
+    const res = LIB.sendDirectMessage({ studentId: selectedId, title, body });
+    if(!res.ok){ errBox.textContent = res.error; return; }
+    render('Messages');
+  };
+  document.getElementById('dmList').innerHTML = msgs.map(m => {
+    const s = db.students.find(x=>x.id===m.studentId);
+    const mine = m.postedById === CURRENT.id;
+    return `
+    <div class="card ann-card">
+      <div class="ann-meta"><span class="who">${LIB.escapeHtml(m.postedBy)}</span><span class="badge grey">to ${LIB.escapeHtml(s?s.name:'— removed student —')}</span><span>${LIB.fmtDateTime(m.date)}</span>
+        <span class="badge ${m.read?'ok':'grey'}">${m.read?'Read':'Unread'}</span></div>
+      <h4 style="margin:0 0 4px;">${LIB.escapeHtml(m.title)}</h4>
+      <p>${LIB.escapeHtml(m.body)}</p>
+      ${mine ? `<div class="row-actions"><button class="btn sm danger" data-del-dm="${m.id}">🗑 Delete</button></div>` : `<span class="hint">🔒 Only ${LIB.escapeHtml(m.postedBy)} can delete this message</span>`}
+    </div>`;
+  }).join('') || `<div class="empty">No individual messages sent yet</div>`;
+  document.querySelectorAll('[data-del-dm]').forEach(b=>b.onclick=()=>{
+    if(!confirm('Delete this message? This cannot be undone.')) return;
+    const res = LIB.removeDirectMessage(b.dataset.delDm, CURRENT.id);
+    if(res && res.ok===false) return alert(res.error);
+    render('Messages');
+  });
+}
+
 /* ================= STAFF (registrar only) ================= */
 function renderStaff(area){
   if(CURRENT.role !== 'registrar'){ area.innerHTML = `<div class="empty">🔒 Registrar access only</div>`; return; }
@@ -1312,11 +1457,36 @@ function renderSettings(area){
       <p class="hint" style="margin-top:6px;">Brings back the original sample books if any were lost or deleted — safe to click any time, it never creates duplicates.</p>
     </div>
 
+    <div class="section-title"><h2>📅 Enrollment Deadline</h2></div>
+    <div class="card">
+      <p>Shown as a countdown on the public enrollment page. Leave blank for no deadline (enrollment always open).</p>
+      <div class="field"><label>Closes at</label><input id="stDeadline" type="datetime-local" value="${s.enrollmentDeadline ? toLocalDatetimeInputValue(s.enrollmentDeadline) : ''}"></div>
+      <div class="row-actions">
+        <button class="btn primary sm" id="stDeadlineSave">Save Deadline</button>
+        <button class="btn outline sm" id="stDeadlineClear">Clear (no deadline)</button>
+      </div>
+      <div id="stDeadlineMsg" style="font-size:12.5px;margin-top:6px;"></div>
+    </div>
+
+    <div class="section-title"><h2>📦 Storage & Applications</h2></div>
+    <div class="card" id="storageCard"></div>
+
+    <div class="section-title"><h2>🎓 Year-End Promotion</h2></div>
+    <div class="card">
+      <p>Bump every student up a grade (9→10, 10→11, 11→12) at the start of a new academic year. Grade 12 students don't get bumped further here — promote everyone else first, then use "Graduate Grade 12" below once you've downloaded their CSV, to archive them out and free up storage.</p>
+      <div class="row-actions">
+        <button class="btn outline" id="promoteBtn">⬆ Promote 9→10, 10→11, 11→12</button>
+        <button class="btn danger" id="graduateBtn">🎓 Graduate Grade 12 (after CSV backup)</button>
+      </div>
+      <div id="promoteMsg" style="font-size:12.5px;margin-top:8px;"></div>
+    </div>
+
     <div class="section-title"><h2>💾 Data Backup</h2></div>
     <div class="card">
       <p>Download the entire database (students, books, loans, announcements) as a JSON file, or restore from a previous backup. This is your real backup — the data lives only in this browser otherwise.</p>
       <div class="row-actions">
         <button class="btn outline" id="expBtn">⬇ Export Backup (.json)</button>
+        <button class="btn outline" id="expCsvBtn">⬇ Export Students (.csv)</button>
         <label class="btn outline" style="position:relative;overflow:hidden;">⬆ Import Backup
           <input type="file" id="impFile" accept=".json" style="position:absolute;inset:0;opacity:0;cursor:pointer;">
         </label>
@@ -1363,6 +1533,7 @@ function renderSettings(area){
     render('Settings');
   };
   document.getElementById('expBtn').onclick = () => LIB.exportJSON();
+  document.getElementById('expCsvBtn').onclick = () => LIB.downloadStudentsCSV();
   document.getElementById('impFile').onchange = (e) => {
     const f = e.target.files[0]; if(!f) return;
     LIB.importJSON(f, (res) => {
@@ -1371,6 +1542,78 @@ function renderSettings(area){
       else { m.style.color='var(--danger)'; m.textContent = res.error; }
     });
   };
+
+  // ---- Enrollment deadline ----
+  document.getElementById('stDeadlineSave').onclick = () => {
+    const v = document.getElementById('stDeadline').value;
+    const msg = document.getElementById('stDeadlineMsg');
+    if(!v){ msg.style.color='var(--danger)'; msg.textContent = 'Pick a date & time, or use Clear instead.'; return; }
+    LIB.setEnrollmentDeadline(new Date(v).toISOString());
+    msg.style.color='var(--ok)'; msg.textContent = 'Deadline saved ✓';
+  };
+  document.getElementById('stDeadlineClear').onclick = () => {
+    LIB.setEnrollmentDeadline('');
+    document.getElementById('stDeadline').value = '';
+    const msg = document.getElementById('stDeadlineMsg');
+    msg.style.color='var(--ok)'; msg.textContent = 'Deadline cleared — enrollment is always open.';
+  };
+
+  // ---- Storage & Applications card ----
+  const drawStorageCard = () => {
+    const info = LIB.applicationsStorageInfo();
+    const apps = LIB.listApplications();
+    const reviewedWithDocs = apps.filter(a => a.status !== 'pending' && (a.idDoc || a.resultDoc)).length;
+    const barColor = info.pctOfLimit >= 80 ? 'var(--danger)' : info.pctOfLimit >= 50 ? 'var(--warn)' : 'var(--ok)';
+    document.getElementById('storageCard').innerHTML = `
+      <p>Applications (with attached photos) use shared storage that Firestore caps at about 1MB — this bar shows how close the Applications data is to that ceiling right now.</p>
+      <div style="background:var(--off);border-radius:8px;height:10px;overflow:hidden;margin:8px 0;">
+        <div style="width:${Math.min(100,info.pctOfLimit)}%;height:100%;background:${barColor};"></div>
+      </div>
+      <p style="font-size:12.5px;color:var(--grey);">${info.kb}KB used of a ~${info.softLimitKb}KB safety margin (${info.pctOfLimit}%)</p>
+      <div class="row-actions">
+        <button class="btn outline sm" id="compactAppsBtn">🧹 Clear Photos From ${reviewedWithDocs} Reviewed Application${reviewedWithDocs===1?'':'s'}</button>
+      </div>
+      <p class="hint" style="margin-top:6px;">Safe to run any time — only affects applications that have already been approved or rejected. Pending applications keep their photos until reviewed.</p>
+    `;
+    document.getElementById('compactAppsBtn').onclick = () => {
+      const res = LIB.compactReviewedApplications();
+      if(!res.ok){ alert(res.error); return; }
+      alert(res.cleared ? `Cleared photos from ${res.cleared} application(s).` : 'Nothing to clear — no reviewed applications currently have photos attached.');
+      drawStorageCard();
+    };
+  };
+  drawStorageCard();
+
+  // ---- Year-end promotion / graduation ----
+  document.getElementById('promoteBtn').onclick = () => {
+    const counts = LIB.previewPromotion();
+    if(!confirm(`This moves every current Grade 9 student to 10, 10→11, and 11→12.\n\nGrade 9: ${counts['9']} students\nGrade 10: ${counts['10']} students\nGrade 11: ${counts['11']} students\n(Grade 12's ${counts['12']} students are untouched here — see Graduate below.)\n\nContinue?`)) return;
+    const res = LIB.promoteStudents({ "9":"10", "10":"11", "11":"12" });
+    const m = document.getElementById('promoteMsg');
+    if(!res.ok){ m.style.color='var(--danger)'; m.textContent = res.error; return; }
+    m.style.color='var(--ok)'; m.textContent = `✓ ${res.count} students promoted.`;
+  };
+  document.getElementById('graduateBtn').onclick = () => {
+    const grade12 = LIB.getDB().students.filter(s => String(s.class||'').trim() === '12');
+    const m = document.getElementById('promoteMsg');
+    if(!grade12.length){ m.style.color='var(--danger)'; m.textContent = 'No Grade 12 students to graduate.'; return; }
+    if(!confirm(`This will PERMANENTLY REMOVE all ${grade12.length} Grade 12 students from the active system (their loan history and messages go with them). Make sure you've downloaded a CSV backup first — click OK to download one now, then confirm again to finish.`)) return;
+    LIB.downloadStudentsCSV(`grade12-${new Date().toISOString().slice(0,10)}`);
+    if(!confirm(`CSV downloaded. Now permanently remove these ${grade12.length} Grade 12 students?`)) return;
+    const res = LIB.graduateStudents(grade12.map(s=>s.id));
+    if(!res.ok){ m.style.color='var(--danger)'; m.textContent = res.error; return; }
+    m.style.color='var(--ok)'; m.textContent = `✓ ${res.removed} Grade 12 students graduated and archived to CSV.`;
+    drawStorageCard();
+  };
+}
+
+// Converts a stored ISO datetime into the local "YYYY-MM-DDTHH:mm" format the
+// <input type="datetime-local"> element expects, in the browser's own timezone.
+function toLocalDatetimeInputValue(iso){
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /* ---------------- boot ---------------- */

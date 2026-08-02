@@ -123,7 +123,7 @@ const LIB = (() => {
   /* ---------------- image helper (resize to data URL) ---------------- */
   // Used for book covers, student photos, and the school/admin logo upload —
   // keeps localStorage small by capping the longest side.
-  function fileToResizedDataURL(file, maxDim, cb){
+  function fileToResizedDataURL(file, maxDim, cb, quality){
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -134,7 +134,7 @@ const LIB = (() => {
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        cb(canvas.toDataURL('image/jpeg', 0.82));
+        cb(canvas.toDataURL('image/jpeg', quality || 0.82));
       };
       img.onerror = () => cb(null);
       img.src = e.target.result;
@@ -163,7 +163,7 @@ const LIB = (() => {
   //   applications -> applications (public enrollment queue, has an attached document — isolated from everything else)
   const SLICE_KEYS = {
     core: ["settings", "staff", "students", "books"],
-    activity: ["requests", "reservations", "comments"],
+    activity: ["requests", "reservations", "comments", "directMessages"],
     feed: ["announcements"],
     applications: ["applications"]
   };
@@ -195,6 +195,7 @@ const LIB = (() => {
     db.announcements = db.announcements || [];
     db.comments = db.comments || [];
     db.applications = db.applications || [];
+    db.directMessages = db.directMessages || [];
     return db;
   }
 
@@ -374,7 +375,8 @@ const LIB = (() => {
         logoUrl: "",
         telegram: "t.me/dagdevio",
         youtube: "",
-        texture: true
+        texture: true,
+        enrollmentDeadline: "" // ISO datetime string set by the Registrar; "" = no deadline / enrollment always open
       },
       // No hardcoded demo admin account here on purpose — shipping a known
       // username/password in the source code is a security hole. Instead, when
@@ -419,13 +421,27 @@ const LIB = (() => {
           mediaUrl: "", mediaType: "", postedBy: "Director Admin", postedByRole: "director", date: now, views: [] }
       ],
       comments: [], // {id, targetType: 'announcement'|'book', targetId, studentId, text, date}
-      applications: [] // public enrollment submissions from apply.html — see submitApplication/approveApplication
+      applications: [], // public enrollment submissions from apply.html — see submitApplication/approveApplication
+      directMessages: [] // private librarian -> single-student notes, see sendDirectMessage/listDirectMessagesFor
     };
   }
 
   /* ---------------- settings ---------------- */
   function getSettings(){ return getDB().settings; }
   function updateSettings(patch){ return mutate(db => Object.assign(db.settings, patch)); }
+  // Enrollment deadline (apply.html countdown) — Registrar-adjustable in Settings.
+  // "" means no deadline set, i.e. enrollment is always open.
+  function getEnrollmentDeadline(){ return getDB().settings.enrollmentDeadline || ""; }
+  function setEnrollmentDeadline(isoOrEmpty){
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can change the enrollment deadline." };
+    mutate(db => { db.settings.enrollmentDeadline = isoOrEmpty || ""; });
+    return { ok:true };
+  }
+  function isEnrollmentClosed(){
+    const d = getEnrollmentDeadline();
+    return !!d && new Date(d).getTime() <= Date.now();
+  }
   function applyTheme(){
     const s = getSettings();
     document.documentElement.style.setProperty('--red', s.accent || "#C8102E");
@@ -441,6 +457,12 @@ const LIB = (() => {
   // Admin pre-registers the student's official record with just a 16-digit FAN
   // (no FIN needed — kept out of the flow entirely per school policy).
   function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone, residency, guardianName, guardianPhone}){
+    // Registrar-only. Only blocks when a STAFF session of the wrong role is active
+    // (Library Staff trying this from the admin console) — this function is also
+    // called internally by approveApplication(), which already verified the actor
+    // is a registrar before calling in, so that path is unaffected.
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can register students." };
     fan = digitsOnly(fan);
     if(!name || !name.trim()) return { ok:false, error: "ሙሉ ስም ያስፈልጋል" };
     if(fan.length !== 16) return { ok:false, error: "FAN 16 ዲጂት መሆን አለበት" };
@@ -474,6 +496,7 @@ const LIB = (() => {
     if(!(data.studentPhone||"").trim() && !(data.studentEmail||"").trim()) return { ok:false, error:"Please provide a student phone or email." };
     if(!(data.guardianName||"").trim() || !(data.guardianPhone||"").trim()) return { ok:false, error:"Parent/Guardian name and phone are required." };
     if(!data.consentInfo) return { ok:false, error:"You must consent to Sheno Secondary School collecting this information." };
+    if(String(data.gradeApplying) === '9' && !data.resultDoc) return { ok:false, error:"Grade 8 Ministry result photo is required for Grade 9 applicants." };
     const ref = genReferenceNumber();
     const record = {
       id: uid("app_"), referenceNumber: ref, status: "pending", submittedAt: todayISO(),
@@ -482,7 +505,8 @@ const LIB = (() => {
       studentEmail: (data.studentEmail||"").trim(), studentPhone: (data.studentPhone||"").trim(),
       homeAddress: (data.homeAddress||"").trim(),
       guardianName: data.guardianName.trim(), guardianPhone: data.guardianPhone.trim(), guardianEmail: (data.guardianEmail||"").trim(),
-      document: data.document || null, // { name, type, size, dataUrl } — kept small, see apply.html upload cap
+      idDoc: data.idDoc || null, // { name, type, size, dataUrl } — National ID face page, kept small (see apply.html upload cap)
+      resultDoc: data.resultDoc || null, // Grade 8 Ministry result photo, Grade 9 applicants only
       consentInfo: !!data.consentInfo, consentPhotos: !!data.consentPhotos,
       reviewedAt: null, reviewedBy: "", rejectReason: "", linkedStudentId: ""
     };
@@ -520,6 +544,42 @@ const LIB = (() => {
       if(a){ a.status = 'rejected'; a.reviewedAt = todayISO(); a.reviewedBy = actor.name; a.rejectReason = reason||""; }
     });
     return { ok:true };
+  }
+  // The National ID / Grade-8-result photos are only needed while an application is
+  // being reviewed. Once reviewed, the Registrar can free up the shared "applications"
+  // storage slice (Firestore caps a single document at ~1MiB, and photos are what fill
+  // it fastest) without losing the rest of the record — this is what keeps a busy
+  // enrollment season from ever hitting that ceiling, at zero cost.
+  function clearApplicationDocs(appId){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can do this." };
+    const db = getDB();
+    const app = db.applications.find(a => a.id === appId);
+    if(!app) return { ok:false, error:"Application not found." };
+    if(app.status === 'pending') return { ok:false, error:"Review this application before clearing its photos." };
+    mutate(db => {
+      const a = db.applications.find(x => x.id === appId);
+      if(a){ a.idDoc = null; a.resultDoc = null; }
+    });
+    return { ok:true };
+  }
+  function compactReviewedApplications(){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can do this." };
+    let cleared = 0;
+    mutate(db => {
+      db.applications.forEach(a => {
+        if(a.status !== 'pending' && (a.idDoc || a.resultDoc)){ a.idDoc = null; a.resultDoc = null; cleared++; }
+      });
+    });
+    return { ok:true, cleared };
+  }
+  // Rough size check so the Registrar can see the applications slice is getting
+  // full BEFORE it silently hits Firestore's ~1MiB per-document ceiling — same
+  // FIRESTORE_DOC_SOFT_LIMIT the sync layer itself warns at (see saveDB above).
+  function applicationsStorageInfo(){
+    const bytes = JSON.stringify(getDB().applications).length;
+    return { bytes, kb: Math.round(bytes/1024), softLimitKb: Math.round(FIRESTORE_DOC_SOFT_LIMIT/1024), pctOfLimit: Math.round(100*bytes/FIRESTORE_DOC_SOFT_LIMIT) };
   }
 
   // Self-activation: student proves identity with the first 4 digits of their FAN
@@ -589,6 +649,12 @@ const LIB = (() => {
 
   // Admin resets/edits a student's PIN directly — no need for the student to remember anything.
   function adminSetStudentPin(studentId, newPin){
+    // Dual-purpose setter: used by the Registrar (admin.html "Reset PIN") AND by a
+    // student changing their own PIN from Profile (index.html, no staff session).
+    // Only block when a STAFF session of the wrong role is doing this — a student's
+    // own session never has currentStaff(), so their self-service path is unaffected.
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can reset a student's PIN." };
     if(!/^\d{4}$/.test(newPin||"")) return { ok:false, error:"PIN ልክ 4 ዲጂት መሆን አለበት" };
     mutate(db => {
       const s = db.students.find(x => x.id === studentId);
@@ -597,13 +663,19 @@ const LIB = (() => {
     return { ok:true };
   }
   function adminEditStudent(studentId, patch){
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can edit student records." };
     mutate(db => {
       const s = db.students.find(x => x.id === studentId);
       if(s) Object.assign(s, patch);
     });
+    return { ok:true };
   }
   function adminSetStudentPhoto(studentId, dataUrl){
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can edit student records." };
     mutate(db => { const s = db.students.find(x=>x.id===studentId); if(s) s.photo = dataUrl || ""; });
+    return { ok:true };
   }
   // Partial-name search: admin can find a student typing just part of the name
   // (a first name, a last name, or any fragment) — no need to type it in full.
@@ -616,7 +688,113 @@ const LIB = (() => {
   // Full removal ("withdraw") of a student record: releases any copies they were
   // holding back to 'available', then deletes the student plus their requests,
   // reservations, and comments so no orphaned data is left behind.
+  // Spreads every student of one grade evenly and randomly across the given
+  // section letters (e.g. ["A","B","C"]) — fair-and-random rather than
+  // alphabetical, so no single section skews toward "everyone whose name
+  // starts with A". A specific student can always be moved afterward via
+  // adminEditStudent (the "Section" field) for the special-case swaps a
+  // Registrar sometimes needs (siblings together, a support need, etc).
+  function autoDistributeSections(grade, sectionLetters, opts){
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can distribute students to sections." };
+    sectionLetters = (sectionLetters||[]).map(s=>String(s).trim()).filter(Boolean);
+    if(!sectionLetters.length) return { ok:false, error:"Pick at least one section." };
+    const onlyUnassigned = !!(opts && opts.onlyUnassigned);
+    const db = getDB();
+    let pool = db.students.filter(s => String(s.class||'').trim() === String(grade).trim());
+    if(onlyUnassigned) pool = pool.filter(s => !String(s.section||'').trim());
+    if(!pool.length) return { ok:false, error:"No matching students to distribute." };
+    // Fisher–Yates shuffle so the section a student lands in is genuinely random,
+    // not just "first N students to section A, next N to section B".
+    const ids = pool.map(s=>s.id);
+    for(let i = ids.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i+1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    mutate(db => {
+      ids.forEach((id, i) => {
+        const s = db.students.find(x=>x.id===id);
+        if(s) s.section = sectionLetters[i % sectionLetters.length];
+      });
+    });
+    return { ok:true, count: ids.length, sections: sectionLetters };
+  }
+  // Simple CSV export of the current student roster — a plain, portable backup
+  // that opens directly in Excel/Sheets, independent of the app itself. Meant
+  // to be run (and saved somewhere safe) at least once per year, e.g. right
+  // before a promotion/graduation pass, so there's always a snapshot to check
+  // the next year's roster against.
+  function studentsToCSV(){
+    const cols = ["FAN","Name","Class","Section","Gender","Age/BirthEC","Phone","Guardian Name","Guardian Phone","Residency","Status","Registered"];
+    const csvEscape = v => { v = (v==null?"":String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+    const rows = getDB().students.map(s => [
+      s.fan, s.name, s.class, s.section||"", s.gender||"", LIB_fmtEthDateForCSV(s.ecBirth),
+      s.phone||"", s.guardianName||"", s.guardianPhone||"", fmtResidency(s.residency),
+      s.activated ? "Active" : "Not Activated", s.createdAt||""
+    ].map(csvEscape).join(","));
+    return [cols.join(","), ...rows].join("\n");
+  }
+  function LIB_fmtEthDateForCSV(ecBirth){ try{ return fmtEthDate(ecBirth); }catch(e){ return ""; } }
+
+  // ---------------- Year-end promotion / graduation ----------------
+  // Two deliberately separate steps so nothing destructive happens by accident:
+  //  1) promoteStudents() only ever bumps the "class" field for grades you
+  //     name (e.g. 9→10, 10→11, 11→12) — nobody is ever removed here.
+  //  2) graduateStudents() is the only function that removes student records
+  //     at all, and it's meant to be called only after the Registrar has
+  //     downloaded a CSV of those exact students (admin.html enforces that
+  //     order) — that CSV *is* the portable "batch" record for students who
+  //     left the school, so removing them here is what actually frees up
+  //     storage instead of the roster growing forever.
+  function previewPromotion(){
+    const db = getDB();
+    const byGrade = { "9":0, "10":0, "11":0, "12":0 };
+    db.students.forEach(s => { const g = String(s.class||'').trim(); if(byGrade[g]!==undefined) byGrade[g]++; });
+    return byGrade;
+  }
+  function promoteStudents(gradeMap){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can promote students." };
+    let count = 0;
+    mutate(db => {
+      db.students.forEach(s => {
+        const from = String(s.class||'').trim();
+        if(Object.prototype.hasOwnProperty.call(gradeMap, from)){ s.class = gradeMap[from]; count++; }
+      });
+    });
+    return { ok:true, count };
+  }
+  function graduateStudents(ids){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can do this." };
+    if(!ids || !ids.length) return { ok:false, error:"No students selected." };
+    const db0 = getDB();
+    const stillOwing = ids.filter(id => db0.requests.some(r => r.studentId===id && r.status==='borrowed'));
+    if(stillOwing.length) return { ok:false, error: `${stillOwing.length} of these students still have a book borrowed — mark it returned first.` };
+    let removed = 0;
+    mutate(db => {
+      const idSet = new Set(ids);
+      db.requests.forEach(r => {
+        if(idSet.has(r.studentId) && r.status === 'pending'){
+          const b = db.books.find(x => x.id === r.bookId);
+          const c = b && b.copies.find(x => x.id === r.copyId);
+          if(c) c.status = 'available';
+        }
+      });
+      const before = db.students.length;
+      db.students = db.students.filter(s => !idSet.has(s.id));
+      removed = before - db.students.length;
+      db.requests = db.requests.filter(r => !idSet.has(r.studentId));
+      db.reservations = db.reservations.filter(r => !idSet.has(r.studentId));
+      db.comments = db.comments.filter(c => !idSet.has(c.studentId));
+      db.directMessages = db.directMessages.filter(m => !idSet.has(m.studentId));
+    });
+    return { ok:true, removed };
+  }
+
   function removeStudent(id){
+    const actor = currentStaff();
+    if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can remove students." };
     mutate(db => {
       db.requests.forEach(r => {
         if(r.studentId === id && (r.status === 'pending' || r.status === 'borrowed')){
@@ -629,7 +807,9 @@ const LIB = (() => {
       db.requests = db.requests.filter(r => r.studentId !== id);
       db.reservations = db.reservations.filter(r => r.studentId !== id);
       db.comments = db.comments.filter(c => c.studentId !== id);
+      db.directMessages = db.directMessages.filter(m => m.studentId !== id);
     });
+    return { ok:true };
   }
 
   /* ---------------- staff management (director only) ---------------- */
@@ -904,6 +1084,50 @@ const LIB = (() => {
     });
   }
 
+  /* ---------------- direct messages (Librarian -> one individual student) ----------------
+     Separate from announcements on purpose: announcements are broadcasts (#GENERAL or a
+     whole grade) posted by either Director or Library Staff and shown on the student's
+     Home feed. A direct message is private, one-to-one, Library-Staff-only (e.g. "please
+     return your book, it's overdue" or another personal note/warning to a single student),
+     and only ever shows up in that student's Inbox — never on Home, never to anyone else. */
+  function sendDirectMessage({studentId, title, body}){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'library') return { ok:false, error:"Only Library Staff can send individual messages." };
+    const db = getDB();
+    if(!db.students.some(s => s.id === studentId)) return { ok:false, error:"Student not found." };
+    title = (title||"").trim(); body = (body||"").trim();
+    if(!title || !body) return { ok:false, error:"Title and message are required." };
+    const rec = { id: uid("dm_"), studentId, title, body,
+      postedBy: actor.name, postedById: actor.id, date: todayISO(), read: false };
+    mutate(db => db.directMessages.push(rec));
+    return { ok:true, message: rec };
+  }
+  // Same "only the sender may touch it" rule as announcements — see isAnnouncementOwner.
+  function isDirectMessageOwner(msgId, staffId){
+    const m = getDB().directMessages.find(x => x.id === msgId);
+    return !!(m && staffId && m.postedById === staffId);
+  }
+  function removeDirectMessage(id, staffId){
+    if(!isDirectMessageOwner(id, staffId)) return { ok:false, error:"You can only delete messages you sent yourself." };
+    mutate(db => { db.directMessages = db.directMessages.filter(m => m.id !== id); });
+    return { ok:true };
+  }
+  function listDirectMessages(){ return getDB().directMessages.slice().sort((a,b)=> new Date(b.date)-new Date(a.date)); }
+  function listDirectMessagesFor(studentId){
+    return getDB().directMessages.filter(m => m.studentId === studentId).sort((a,b)=> new Date(b.date)-new Date(a.date));
+  }
+  // Drives the Inbox tab's notification badge, same idea as unreadAnnouncementCount.
+  function unreadDirectMessageCount(studentId){
+    if(!studentId) return 0;
+    return getDB().directMessages.filter(m => m.studentId === studentId && !m.read).length;
+  }
+  function markDirectMessageRead(id, studentId){
+    mutate(db => {
+      const m = db.directMessages.find(x => x.id === id && x.studentId === studentId);
+      if(m) m.read = true;
+    });
+  }
+
   /* ---------------- comments ---------------- */
   function addComment({targetType, targetId, studentId, text}){
     const rec = { id: uid("cm_"), targetType, targetId, studentId, text, date: todayISO() };
@@ -945,10 +1169,22 @@ const LIB = (() => {
       db.reservations = [];
       db.announcements = [];
       db.comments = [];
+      db.directMessages = [];
     });
   }
 
   /* ---------------- backup / restore ---------------- */
+  // Same download-a-Blob pattern as exportJSON below, just for the CSV roster —
+  // a plain file any office computer can open, independent of this app.
+  function downloadStudentsCSV(filenameSuffix){
+    const csv = studentsToCSV();
+    const blob = new Blob([csv], { type:"text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `sssdp-students-${filenameSuffix||new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
   function exportJSON(){
     const db = getDB();
     const blob = new Blob([JSON.stringify(db, null, 2)], { type:"application/json" });
@@ -977,17 +1213,20 @@ const LIB = (() => {
     fileToResizedDataURL, fileToDataURL,
     ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate, fmtResidency,
     getDB, mutate, ready, getSettings, updateSettings, applyTheme,
+    getEnrollmentDeadline, setEnrollmentDeadline, isEnrollmentClosed,
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
-    submitApplication, listApplications, approveApplication, rejectApplication,
+    submitApplication, listApplications, approveApplication, rejectApplication, clearApplicationDocs, compactReviewedApplications, applicationsStorageInfo,
     adminSetStudentPin, adminEditStudent, adminSetStudentPhoto, searchStudents, removeStudent,
+    autoDistributeSections, studentsToCSV, previewPromotion, promoteStudents, graduateStudents,
     setupFirstAdmin, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData, restoreDemoBooks,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,
     reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed,
     AUDIENCES, AUDIENCE_LABEL,
     postAnnouncement, updateAnnouncement, removeAnnouncement, isAnnouncementOwner, listAnnouncements, listAnnouncementsFor, unreadAnnouncementCount, markAnnouncementViewed,
+    sendDirectMessage, isDirectMessageOwner, removeDirectMessage, listDirectMessages, listDirectMessagesFor, unreadDirectMessageCount, markDirectMessageRead,
     addComment, commentsFor,
-    exportJSON, importJSON
+    exportJSON, importJSON, downloadStudentsCSV
   };
 })();

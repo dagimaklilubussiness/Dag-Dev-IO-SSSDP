@@ -425,6 +425,13 @@ footer.watermark a{ color:var(--red); font-weight:700; text-decoration:none;}
 .copy-chip.borrowed{ color:var(--warn); border-color:#f2dcb0;}
 .copy-chip.damaged, .copy-chip.lost{ color:var(--danger); border-color:#f2c1c6;}
 
+/* ---------- Student picker dropdown (Messages screen) ---------- */
+.dm-stu-results{ position:relative; }
+.dm-stu-results.open{ border:1px solid var(--line); border-radius:10px; margin-top:4px; overflow:hidden; box-shadow:var(--shadow); }
+.dm-stu-opt{ padding:9px 12px; font-size:13px; cursor:pointer; border-bottom:1px solid var(--line); background:#fff; }
+.dm-stu-opt:last-child{ border-bottom:none; }
+.dm-stu-opt:hover{ background:var(--off); }
+
 @media (max-width:480px){
   .auth-card-inner{ padding:20px 16px;}
   .modal-box{ padding:16px;}

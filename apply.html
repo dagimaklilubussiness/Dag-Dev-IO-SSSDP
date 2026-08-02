@@ -37,9 +37,48 @@
   .apply-footnote{ text-align:center; font-size:12px; color:var(--grey); margin-top:18px; }
   .ref-card{ text-align:center; padding:34px 20px; }
   .ref-card .num{ font-size:26px; font-weight:800; color:var(--red); letter-spacing:.04em; margin:10px 0 6px; }
+
+  .deadline-box{
+    text-align:center; font-size:13.5px; font-weight:700; color:var(--black);
+    background:linear-gradient(180deg,#fff8e6,#fdeec2); border:1px solid #f0dda0;
+    border-radius:12px; padding:10px 14px; margin-bottom:14px;
+  }
+  .deadline-box.closed{ background:#fdecec; border-color:#f2c1c6; color:var(--danger); }
+
+  /* ---- Developer credit footer — a bit more presence than the plain line above it,
+     since this is the school's public first-impression page. ---- */
+  .apply-dev-footer{ background:var(--black); margin-top:8px; }
+  .apply-dev-badge{
+    max-width:760px; margin:0 auto; padding:16px 20px 22px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .apply-dev-badge img{ width:34px; height:34px; border-radius:9px; object-fit:cover; flex-shrink:0; box-shadow:0 2px 8px rgba(0,0,0,.4); }
+  .apply-dev-name{ font-size:12.5px; font-weight:700; letter-spacing:.03em; }
+  .apply-dev-name a{
+    background-image: linear-gradient(90deg, var(--gold), #f2d68a 35%, var(--gold) 70%, #f2d68a);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-decoration:none;
+  }
+  .apply-dev-sub{ font-size:10.5px; color:#a9a29c; margin-top:2px; }
 </style>
 </head>
 <body class="apply-page">
+
+<!-- ===================== CLOUD LOADING SCREEN ===================== -->
+<div id="cloudLoading" class="auth-wrap cloud-loading-bg">
+  <div class="auth-card loading-card">
+    <div class="tibeb-strip textured thin"></div>
+    <div class="auth-card-inner" style="padding:38px 24px 30px;">
+      <div class="loading-badge"><img src="motif-badge.png" alt="" onerror="this.style.display='none'"></div>
+      <div class="loading-spinner" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="loading-caption" id="loadingCaption">Connecting to the school's enrollment system…</div>
+      <div class="loading-slow hidden" id="loadingSlow">Taking longer than usual — check your connection.<br><button class="btn outline sm" type="button" onclick="location.reload()">Retry</button></div>
+    </div>
+    <div class="tibeb-strip textured thin"></div>
+  </div>
+</div>
+
+<div id="applyPageBody" class="hidden">
 
 <div class="apply-hero">
   <div class="apply-hero-top">
@@ -113,12 +152,19 @@
       </div>
     </div>
 
-    <div class="apply-step"><div class="num">4</div><h2>Supporting Document</h2></div>
+    <div class="apply-step"><div class="num">4</div><h2>Supporting Documents</h2></div>
     <div class="card">
-      <label class="field"><span>Proof of Residency or Latest Report Card (optional, image or PDF, max 300KB)</span></label>
-      <label class="doc-upload" id="docUploadLabel" for="apDoc">📎 Tap to choose a file</label>
-      <input type="file" id="apDoc" accept="image/*,.pdf" style="display:none;">
-      <div id="docErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+      <label class="field"><span>National ID (Face Page) — image, max 300KB</span></label>
+      <label class="doc-upload" id="idDocUploadLabel" for="apIdDoc">🪪 Tap to choose a file</label>
+      <input type="file" id="apIdDoc" accept="image/*" style="display:none;">
+      <div id="idDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+
+      <div id="resultDocBox" style="margin-top:16px;">
+        <label class="field"><span>Grade 8 Ministry Result (required for Grade 9 applicants) — image, max 300KB</span></label>
+        <label class="doc-upload" id="resultDocUploadLabel" for="apResultDoc">📄 Tap to choose a file</label>
+        <input type="file" id="apResultDoc" accept="image/*" style="display:none;">
+        <div id="resultDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+      </div>
     </div>
 
     <div class="apply-step"><div class="num">5</div><h2>Consent</h2></div>
@@ -130,6 +176,8 @@
       <input type="checkbox" id="apConsentPhotos">
       <label for="apConsentPhotos">I also consent to the student appearing in official school photos or publications (optional — you can decline and still register).</label>
     </div>
+
+    <div id="deadlineBox" class="deadline-box hidden"></div>
 
     <div id="submitErr" style="color:var(--danger);font-size:13px;margin-bottom:10px;"></div>
     <button class="btn primary block" type="submit" id="submitBtn">Submit Application</button>
@@ -146,6 +194,19 @@
 
   <p class="apply-footnote">© <span id="yearNow"></span> Sheno Secondary School — Registration Portal</p>
 </div>
+
+<footer class="apply-dev-footer">
+  <div class="tibeb-strip textured thin"></div>
+  <div class="apply-dev-badge">
+    <img src="developer-logo.jpg" alt="" onerror="this.style.display='none'">
+    <div>
+      <div class="apply-dev-name">Built &amp; maintained by <a href="https://t.me/dagdevio" target="_blank" rel="noopener">DAG DEV IO</a></div>
+      <div class="apply-dev-sub">This Website app developed by 2024/25 batch Dagim Aklilu &amp; Dawit Alemu · t.me/dagdevio</div>
+    </div>
+  </div>
+</footer>
+
+</div><!-- /applyPageBody -->
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -177,60 +238,128 @@ function wireApplyEcFields(){
   refreshDays();
   document.getElementById('heroTitle').textContent = `Enroll for the ${curYear}/${curYear+1} Academic Year (E.C.)`;
 }
-wireApplyEcFields();
 
-// ---- Optional document upload, capped small so it never risks the Firestore doc limit ----
-let pendingDoc = null;
+// ---- File upload helper — capped small so it never risks the Firestore doc
+//      limit; images are resized/compressed client-side (free, no server needed). ----
 const RAW_SIZE_CAP = 300 * 1024; // 300KB raw file — after resizing images this leaves comfortable headroom
-document.getElementById('apDoc').addEventListener('change', (e) => {
-  const f = e.target.files[0];
-  const errBox = document.getElementById('docErr');
-  const label = document.getElementById('docUploadLabel');
-  errBox.textContent = ''; pendingDoc = null; label.classList.remove('has-file'); label.textContent = '📎 Tap to choose a file';
-  if(!f) return;
-  if(f.size > RAW_SIZE_CAP){
-    errBox.textContent = `That file is ${Math.round(f.size/1024)}KB — please choose one under 300KB (or a smaller photo of the document).`;
-    e.target.value = '';
-    return;
-  }
-  const finish = (dataUrl) => {
-    if(!dataUrl){ errBox.textContent = "Couldn't read that file — please try another."; return; }
-    pendingDoc = { name: f.name, type: f.type, size: f.size, dataUrl };
-    label.classList.add('has-file');
-    label.textContent = `✓ ${f.name} (${Math.round(f.size/1024)}KB)`;
-  };
-  if(f.type.startsWith('image/')) LIB.fileToResizedDataURL(f, 1000, finish);
-  else LIB.fileToDataURL(f, finish);
-});
-
-// ---- Submit ----
-document.getElementById('applyForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const submitErr = document.getElementById('submitErr');
-  submitErr.textContent = '';
-  const ecBirth = { day: Number(document.getElementById('apEcDay').value), month: Number(document.getElementById('apEcMonth').value), year: Number(document.getElementById('apEcYear').value) };
-  if(!ecBirth.day || !ecBirth.month || !ecBirth.year){ submitErr.textContent = 'Please complete the date of birth.'; return; }
-  const res = LIB.submitApplication({
-    name: document.getElementById('apName').value,
-    ecBirth,
-    gender: document.getElementById('apGender').value,
-    gradeApplying: document.getElementById('apGrade').value,
-    existingIdIfAny: document.getElementById('apExistingId').value,
-    studentEmail: document.getElementById('apStudentEmail').value,
-    studentPhone: document.getElementById('apStudentPhone').value,
-    homeAddress: document.getElementById('apHomeAddress').value,
-    guardianName: document.getElementById('apGuardianName').value,
-    guardianPhone: document.getElementById('apGuardianPhone').value,
-    guardianEmail: document.getElementById('apGuardianEmail').value,
-    document: pendingDoc,
-    consentInfo: document.getElementById('apConsentInfo').checked,
-    consentPhotos: document.getElementById('apConsentPhotos').checked
+function wireDocUpload(inputId, labelId, errId, onReady){
+  let pending = null;
+  const input = document.getElementById(inputId);
+  const label = document.getElementById(labelId);
+  const errBox = document.getElementById(errId);
+  input.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    errBox.textContent = ''; pending = null; label.classList.remove('has-file'); label.textContent = '📎 Tap to choose a file';
+    onReady(null);
+    if(!f) return;
+    if(f.size > RAW_SIZE_CAP){
+      errBox.textContent = `That file is ${Math.round(f.size/1024)}KB — please choose one under 300KB (or a smaller photo of the document).`;
+      e.target.value = '';
+      return;
+    }
+    const finish = (dataUrl) => {
+      if(!dataUrl){ errBox.textContent = "Couldn't read that file — please try another."; return; }
+      pending = { name: f.name, type: f.type, size: f.size, dataUrl };
+      label.classList.add('has-file');
+      label.textContent = `✓ ${f.name} (${Math.round(f.size/1024)}KB)`;
+      onReady(pending);
+    };
+    if(f.type.startsWith('image/')) LIB.fileToResizedDataURL(f, 700, finish, 0.6);
+    else LIB.fileToDataURL(f, finish);
   });
-  if(!res.ok){ submitErr.textContent = res.error; return; }
-  document.getElementById('applyForm').classList.add('hidden');
-  document.getElementById('successCard').classList.remove('hidden');
-  document.getElementById('refNumberOut').textContent = res.referenceNumber;
-});
+}
+
+function initApplyPage(){
+  wireApplyEcFields();
+
+  // National ID (face page) — replaces the old generic "proof of residency" upload.
+  let pendingIdDoc = null;
+  wireDocUpload('apIdDoc', 'idDocUploadLabel', 'idDocErr', (v) => pendingIdDoc = v);
+
+  // Ministry / Grade 8 result — only required for students applying to Grade 9
+  // (this is how new Grade-9 intake proves they actually passed Grade 8).
+  let pendingResultDoc = null;
+  wireDocUpload('apResultDoc', 'resultDocUploadLabel', 'resultDocErr', (v) => pendingResultDoc = v);
+  const gradeSel = document.getElementById('apGrade');
+  const resultBox = document.getElementById('resultDocBox');
+  const refreshResultBox = () => { resultBox.classList.toggle('hidden', gradeSel.value !== '9'); };
+  gradeSel.onchange = refreshResultBox;
+  refreshResultBox();
+
+  // ---- Enrollment deadline countdown (registrar-adjustable in Settings) ----
+  wireDeadlineCountdown();
+
+  // ---- Submit ----
+  document.getElementById('applyForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const submitErr = document.getElementById('submitErr');
+    submitErr.textContent = '';
+    if(LIB.isEnrollmentClosed()){ submitErr.textContent = "Enrollment is closed — the deadline has passed. Please contact the school office."; return; }
+    const ecBirth = { day: Number(document.getElementById('apEcDay').value), month: Number(document.getElementById('apEcMonth').value), year: Number(document.getElementById('apEcYear').value) };
+    if(!ecBirth.day || !ecBirth.month || !ecBirth.year){ submitErr.textContent = 'Please complete the date of birth.'; return; }
+    const gradeApplying = document.getElementById('apGrade').value;
+    if(gradeApplying === '9' && !pendingResultDoc){ submitErr.textContent = 'Please attach a photo of the Grade 8 Ministry result for Grade 9 applicants.'; return; }
+    const res = LIB.submitApplication({
+      name: document.getElementById('apName').value,
+      ecBirth,
+      gender: document.getElementById('apGender').value,
+      gradeApplying,
+      existingIdIfAny: document.getElementById('apExistingId').value,
+      studentEmail: document.getElementById('apStudentEmail').value,
+      studentPhone: document.getElementById('apStudentPhone').value,
+      homeAddress: document.getElementById('apHomeAddress').value,
+      guardianName: document.getElementById('apGuardianName').value,
+      guardianPhone: document.getElementById('apGuardianPhone').value,
+      guardianEmail: document.getElementById('apGuardianEmail').value,
+      idDoc: pendingIdDoc,
+      resultDoc: pendingResultDoc,
+      consentInfo: document.getElementById('apConsentInfo').checked,
+      consentPhotos: document.getElementById('apConsentPhotos').checked
+    });
+    if(!res.ok){ submitErr.textContent = res.error; return; }
+    document.getElementById('applyForm').classList.add('hidden');
+    document.getElementById('successCard').classList.remove('hidden');
+    document.getElementById('refNumberOut').textContent = res.referenceNumber;
+  });
+}
+
+function wireDeadlineCountdown(){
+  const box = document.getElementById('deadlineBox');
+  const deadline = LIB.getEnrollmentDeadline(); // ISO string set by the Registrar in admin.html Settings, or '' if none set
+  if(!deadline){ box.classList.add('hidden'); return; }
+  const submitBtn = document.getElementById('submitBtn');
+  const tick = () => {
+    const msLeft = new Date(deadline).getTime() - Date.now();
+    if(msLeft <= 0){
+      box.innerHTML = `⛔ Enrollment closed — the deadline has passed.`;
+      box.classList.add('closed');
+      if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Enrollment Closed'; }
+      clearInterval(timer);
+      return;
+    }
+    const d = Math.floor(msLeft / 86400000);
+    const h = Math.floor((msLeft % 86400000) / 3600000);
+    const m = Math.floor((msLeft % 3600000) / 60000);
+    box.innerHTML = `⏳ Enrollment closes in <b>${d}</b>d <b>${String(h).padStart(2,'0')}</b>h <b>${String(m).padStart(2,'0')}</b>m`;
+  };
+  tick();
+  const timer = setInterval(tick, 30000);
+}
+
+(function init(){
+  // If the cloud takes a while to answer, don't leave the spinner running with
+  // no explanation — surface a "still working on it" message with a Retry.
+  const slowTimer = setTimeout(() => {
+    const el = document.getElementById('loadingSlow');
+    if(el) el.classList.remove('hidden');
+  }, 8000);
+  LIB.ready(() => {
+    clearTimeout(slowTimer);
+    document.getElementById('cloudLoading').classList.add('hidden');
+    document.getElementById('applyPageBody').classList.remove('hidden');
+    initApplyPage();
+  });
+})();
 </script>
 </body>
 </html>

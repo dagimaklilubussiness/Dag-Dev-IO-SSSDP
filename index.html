@@ -170,6 +170,19 @@ function checkForNewAnnouncements(student){
   }
   anns.forEach(a => _seenAnnIds.add(a.id));
 }
+// Same idea as checkForNewAnnouncements, but for private Librarian messages
+// (Inbox) instead of the shared Home feed.
+let _seenMsgIds = null;
+function checkForNewMessages(student){
+  if(!student) return;
+  const msgs = LIB.listDirectMessagesFor(student.id);
+  if(_seenMsgIds === null){ _seenMsgIds = new Set(msgs.map(m=>m.id)); return; }
+  const newOnes = msgs.filter(m => !_seenMsgIds.has(m.id));
+  if(newOnes.length && notifPermission() === 'granted'){
+    newOnes.forEach(m => showAnnouncementNotification(m));
+  }
+  msgs.forEach(m => _seenMsgIds.add(m.id));
+}
 
 LIB.applyTheme();
 const s = LIB.getSettings();
@@ -245,6 +258,7 @@ function bootApp(){
   document.getElementById('studentNameTag').textContent = student ? `${student.name} • ክፍል ${student.class}${student.section}` : '';
   updateInboxBadge(student);
   checkForNewAnnouncements(student);
+  checkForNewMessages(student);
   renderView('Home');
 }
 
@@ -413,24 +427,44 @@ function wireBookCards(student){
   });
 }
 
-/* ---------------- INBOX ---------------- */
+/* ---------------- INBOX ----------------
+   Private, one-to-one notes from the Librarian only (e.g. an overdue-book
+   reminder) — different from Home, which shows the shared #GENERAL/#GRADE
+   announcement feed from Director AND Librarian. See LIB.sendDirectMessage. */
 function renderInbox(student){
-  const anns = LIB.listAnnouncementsFor(student);
-  let html = `<h2>🔔 Inbox</h2>`;
-  if(!anns.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም መልዕክት የለም</div>`; }
-  anns.forEach(a => { html += announcementCardHtml(a); });
+  const msgs = LIB.listDirectMessagesFor(student.id);
+  let html = `<h2>🔔 Inbox</h2><p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">የላይብረሪያን የግል መልዕክቶች / Private messages from the Librarian, addressed to you.</p>`;
+  if(!msgs.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም መልዕክት የለም</div>`; }
+  msgs.forEach(m => { html += directMessageCardHtml(m); });
   document.getElementById('viewInbox').innerHTML = html;
-  wireAnnouncementCards(student);
+  wireDirectMessageCards(student);
   updateInboxBadge(student);
 }
 
-// Notification badge on the bottom-nav Inbox tab — shows how many posts tagged
-// for this student's grade (or #GENERAL) haven't been opened yet, so students
-// know at a glance when something new was published without having to check.
+function directMessageCardHtml(m){
+  return `
+  <div class="card ann-card" data-msg="${m.id}">
+    <div class="ann-meta"><span class="who">${LIB.escapeHtml(m.postedBy)}</span><span class="badge grey">ላይብረሪ</span><span>${LIB.fmtDateTime(m.date)}</span></div>
+    <h4 style="margin:0 0 4px;">${LIB.escapeHtml(m.title)}</h4>
+    <p>${LIB.escapeHtml(m.body)}</p>
+  </div>`;
+}
+
+// Marks each message the student can currently see as read — same "opened it
+// at least once" idea as wireAnnouncementCards, just against the private inbox.
+function wireDirectMessageCards(student){
+  document.querySelectorAll('[data-msg]').forEach(card => {
+    LIB.markDirectMessageRead(card.dataset.msg, student.id);
+  });
+}
+
+// Notification badge on the bottom-nav Inbox tab — shows how many private
+// messages from the Librarian haven't been opened yet, so students know at a
+// glance when something new was sent without having to check.
 function updateInboxBadge(student){
   const badge = document.getElementById('inboxBadge');
   if(!badge) return;
-  const n = LIB.unreadAnnouncementCount(student);
+  const n = LIB.unreadDirectMessageCount(student && student.id);
   badge.textContent = n > 9 ? '9+' : String(n);
   badge.classList.toggle('hidden', n === 0);
 }
@@ -516,6 +550,7 @@ window.SSSDP_REFRESH = function(){
     const student = LIB.currentStudent();
     updateInboxBadge(student);
     checkForNewAnnouncements(student); // fires a phone notification if a new #GENERAL/grade-tagged post just arrived
+    checkForNewMessages(student); // fires a phone notification if the Librarian just sent a new private message
   }
 };
 (function init(){
