@@ -596,7 +596,7 @@ const LIB = (() => {
   /* ---------------- auth: students ---------------- */
   // Admin pre-registers the student's official record with just a 16-digit FAN
   // (no FIN needed — kept out of the flow entirely per school policy).
-  function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone, residency, guardianName, guardianPhone, stream}){
+  function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone, residency, guardianName, guardianPhone, stream, previousResult}){
     // Registrar-only. Only blocks when a STAFF session of the wrong role is active
     // (Library Staff trying this from the admin console) — this function is also
     // called internally by approveApplication(), which already verified the actor
@@ -611,10 +611,16 @@ const LIB = (() => {
     // Stream (Natural / Social Science) only applies from Grade 11 onward —
     // ignored for any other grade even if one was passed in.
     const streamVal = (['11','12'].includes(String(klass).trim()) && ['natural','social'].includes(stream)) ? stream : "";
+    // Previous result (Grade 8 Ministry result for new Grade 9s, or the most
+    // recent report card score for other grades) — out of 100. Used later by
+    // Auto-Distribute Sections to balance ability fairly across sections
+    // instead of just randomly. Optional: kept null when not known.
+    const prevResultNum = (previousResult === '' || previousResult == null) ? null : Number(previousResult);
     const student = { id: uid("std_"), fan, name: name.trim(), class: klass, section,
       gender: gender||"", ecBirth: ecBirth||null, age: ecBirth ? computeAgeFromEC(ecBirth) : null,
       phone: phone||"", stream: streamVal, batchYear: ethToday().year, // EC year of registration — this student's "batch"
       residency: (residency && typeof residency==='object') ? { town: residency.town||"", kebele: residency.kebele||"", sefer: residency.sefer||"" } : { town:"", kebele:"", sefer:"" },
+      previousResult: (prevResultNum!=null && !isNaN(prevResultNum) && prevResultNum>=0 && prevResultNum<=100) ? prevResultNum : null,
       guardianName: guardianName||"", guardianPhone: guardianPhone||"",
       activated:false, pin:"", createdAt: todayISO() };
     mutate(db => db.students.push(student));
@@ -646,13 +652,29 @@ const LIB = (() => {
     if(!(data.guardianName||"").trim() || !(data.guardianPhone||"").trim()) return { ok:false, error:"Parent/Guardian name and phone are required." };
     if(!data.consentInfo) return { ok:false, error:"You must consent to Sheno Secondary School collecting this information." };
     if(['9','10','11','12'].includes(String(data.gradeApplying)) && !data.resultDoc) return { ok:false, error:"A photo of the previous year's result/report card is required." };
+    // FAN (Fayda/National ID number) is printed on the student's own National ID,
+    // so the applicant fills it in themselves at registration time instead of the
+    // Registrar re-typing it later off the ID photo — that step still checks and
+    // corrects it at Approve time, but starts from what the family already gave.
+    const fan = digitsOnly(data.fan);
+    if(fan.length !== 16) return { ok:false, error:"FAN (16 digit, from the National ID) is required." };
+    if(['9','10','11','12'].includes(String(data.gradeApplying))){
+      const score = Number(data.previousResultScore);
+      if(data.previousResultScore === '' || data.previousResultScore == null || isNaN(score) || score < 0 || score > 100){
+        return { ok:false, error: String(data.gradeApplying)==='9' ? "Grade 8 Ministry result (out of 100) is required." : "Previous year's result (out of 100) is required." };
+      }
+    }
     const ref = genReferenceNumber();
     const record = {
       id: uid("app_"), referenceNumber: ref, status: "pending", submittedAt: todayISO(),
       name, ecBirth: data.ecBirth, age: computeAgeFromEC(data.ecBirth), gender: data.gender,
       gradeApplying: data.gradeApplying, existingIdIfAny: (data.existingIdIfAny||"").trim(),
+      fan, // filled in by the applicant, still verified/correctable by the Registrar at Approve time
       studentEmail: (data.studentEmail||"").trim(), studentPhone: (data.studentPhone||"").trim(),
-      homeAddress: (data.homeAddress||"").trim(),
+      residency: (data.residency && typeof data.residency==='object')
+        ? { town: (data.residency.town||"").trim(), kebele: (data.residency.kebele||"").trim(), sefer: (data.residency.sefer||"").trim() }
+        : { town:"", kebele:"", sefer:"" },
+      previousResultScore: ['9','10','11','12'].includes(String(data.gradeApplying)) ? Number(data.previousResultScore) : null,
       guardianName: data.guardianName.trim(), guardianPhone: data.guardianPhone.trim(), guardianEmail: (data.guardianEmail||"").trim(),
       idDoc: data.idDoc || null, // { name, type, size, dataUrl } — National ID face page, kept small (see apply.html upload cap)
       resultDoc: data.resultDoc || null, // Grade 8 Ministry result photo, Grade 9 applicants only
@@ -906,12 +928,22 @@ const LIB = (() => {
   // Full removal ("withdraw") of a student record: releases any copies they were
   // holding back to 'available', then deletes the student plus their requests,
   // reservations, and comments so no orphaned data is left behind.
-  // Spreads every student of one grade evenly and randomly across the given
-  // section letters (e.g. ["A","B","C"]) — fair-and-random rather than
-  // alphabetical, so no single section skews toward "everyone whose name
-  // starts with A". A specific student can always be moved afterward via
-  // adminEditStudent (the "Section" field) for the special-case swaps a
-  // Registrar sometimes needs (siblings together, a support need, etc).
+  // Spreads every student of one grade evenly across the given section letters
+  // (e.g. ["A","B","C"]) — fair rather than alphabetical, so no single section
+  // skews toward "everyone whose name starts with A". A specific student can
+  // always be moved afterward via adminEditStudent (the "Section" field) for
+  // the special-case swaps a Registrar sometimes needs (siblings together, a
+  // support need, etc).
+  //
+  // Fairness: when students have a previousResult (Grade 8 Ministry result, or
+  // prior year's result for 10-12) on file, that's used to balance academic
+  // ability evenly across sections — a "snake" draft (A,B,C,C,B,A,A,B,C,…)
+  // hands out the strongest, then weakest, then next-strongest, etc, so every
+  // section ends up with a similar mix of scores instead of one section
+  // accidentally getting all the top performers. Students who share the same
+  // score (or have none on file) are shuffled first, so the order within a
+  // score tier — and the placement of students with no score — is still random,
+  // not alphabetical or by registration order.
   function autoDistributeSections(grade, sectionLetters, opts){
     const actor = currentStaff();
     if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can distribute students to sections." };
@@ -922,17 +954,30 @@ const LIB = (() => {
     let pool = db.students.filter(s => String(s.class||'').trim() === String(grade).trim());
     if(onlyUnassigned) pool = pool.filter(s => !String(s.section||'').trim());
     if(!pool.length) return { ok:false, error:"No matching students to distribute." };
-    // Fisher–Yates shuffle so the section a student lands in is genuinely random,
-    // not just "first N students to section A, next N to section B".
+    // Fisher–Yates shuffle first (randomizes tie order / no-score order), THEN
+    // a stable sort by previousResult descending (students with no score sink
+    // to the end, in their already-shuffled order).
     const ids = pool.map(s=>s.id);
     for(let i = ids.length - 1; i > 0; i--){
       const j = Math.floor(Math.random() * (i+1));
       [ids[i], ids[j]] = [ids[j], ids[i]];
     }
+    const scoreOf = id => { const s = pool.find(x=>x.id===id); const v = s && s.previousResult; return (v==null || isNaN(v)) ? -1 : Number(v); };
+    ids.sort((a,b) => scoreOf(b) - scoreOf(a));
+    // Snake/boustrophedon draft across sections: forward through the letters,
+    // then backward, then forward again — this is what actually balances the
+    // average score per section, unlike a plain round-robin (A,B,C,A,B,C,…)
+    // which always gives section A a slight edge on every full lap.
+    const n = sectionLetters.length;
+    const order = [];
+    for(let lap = 0; lap < Math.ceil(ids.length / n); lap++){
+      const lapLetters = lap % 2 === 0 ? sectionLetters : sectionLetters.slice().reverse();
+      order.push(...lapLetters);
+    }
     mutate(db => {
       ids.forEach((id, i) => {
         const s = db.students.find(x=>x.id===id);
-        if(s) s.section = sectionLetters[i % sectionLetters.length];
+        if(s) s.section = order[i];
       });
     });
     return { ok:true, count: ids.length, sections: sectionLetters };
@@ -943,7 +988,7 @@ const LIB = (() => {
   // before a promotion/graduation pass, so there's always a snapshot to check
   // the next year's roster against.
   function studentsToCSV(){
-    const cols = ["FAN","Name","Class","Section","Gender","Age/BirthEC","Phone","Guardian Name","Guardian Phone","Residency","Status","Registered"];
+    const cols = ["FAN","Name","Class","Section","Gender","Age/BirthEC","Phone","Guardian Name","Guardian Phone","Residency","Previous Result (/100)","Status","Registered"];
     const csvEscape = v => { v = (v==null?"":String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
     // Excel auto-detects any long all-digit cell (FAN, phone numbers) as a
     // number and switches it to scientific notation (e.g. "1E+15"), silently
@@ -953,6 +998,7 @@ const LIB = (() => {
     const rows = getDB().students.map(s => [
       asText(s.fan), s.name, s.class, s.section||"", s.gender||"", LIB_fmtEthDateForCSV(s.ecBirth),
       asText(s.phone), s.guardianName||"", asText(s.guardianPhone), fmtResidency(s.residency),
+      s.previousResult!=null ? String(s.previousResult) : "",
       s.activated ? "Active" : "Not Activated", s.createdAt||""
     ].map((v,i) => i===0||i===6||i===8 ? v : csvEscape(v)).join(","));
     return [cols.join(","), ...rows].join("\r\n");
@@ -1102,6 +1148,29 @@ const LIB = (() => {
     if(!newPassword || newPassword.length < 6) return { ok:false, error:"አዲሱ የይለፍ ቃል ቢያንስ 6 ፊደል ይሁን" };
     mutate(db => { db.staff.find(s=>s.id===staffId).password = newPassword; });
     return { ok:true };
+  }
+  // Any staff member can rename their own account or change their own login
+  // username from Settings — this used to be fixed forever after Setup/Add
+  // Staff, which was a real problem for a typo or a legal name change.
+  function staffUpdateOwnProfile(staffId, {name, username}){
+    const db = getDB();
+    const staff = db.staff.find(s => s.id === staffId);
+    if(!staff) return { ok:false, error:"አልተገኘም" };
+    name = (name||"").trim(); username = (username||"").trim();
+    if(!name || !username) return { ok:false, error:"Please fill in both name and username." };
+    if(db.staff.some(s => s.id !== staffId && s.username.toLowerCase() === username.toLowerCase())){
+      return { ok:false, error:"ይህ የተጠቃሚ ስም አለ" };
+    }
+    mutate(db => { const s = db.staff.find(x=>x.id===staffId); if(s){ s.name = name; s.username = username; } });
+    return { ok:true };
+  }
+  // Registrar-only: edit ANY staff account's name/username (self or others) —
+  // used from the Staff Accounts table so the Registrar isn't limited to
+  // fixing only their own profile from Settings.
+  function adminUpdateStaffProfile(staffId, {name, username}){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can edit staff accounts." };
+    return staffUpdateOwnProfile(staffId, {name, username});
   }
 
   /* ---------------- books (per-copy tracking) ---------------- */
@@ -1528,7 +1597,7 @@ const LIB = (() => {
     syncStudentShardsNow, studentStorageInfo,
     adminSetStudentPin, adminEditStudent, searchStudents, removeStudent,
     autoDistributeSections, studentsToCSV, previewPromotion, promoteStudents, graduateStudents,
-    setupFirstAdmin, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData, restoreDemoBooks,
+    setupFirstAdmin, addStaff, removeStaff, staffChangeOwnPassword, staffUpdateOwnProfile, adminUpdateStaffProfile, clearDemoData, restoreDemoBooks,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,
     reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed, purgeOldLoanHistory,

@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://firestore.googleapis.com">
 <link rel="preconnect" href="https://www.gstatic.com">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="school-logo.jpg">
+<link rel="apple-touch-icon" href="school-logo.jpg">
 <link rel="stylesheet" href="style.css">
 <style>
   /* Page-specific styling only — everything else (fields/buttons/cards) reuses style.css so this matches the rest of SSSDP. */
@@ -136,6 +138,8 @@
         </div>
       </div>
       <div class="field"><label>School-Issued ID (leave blank if new)</label><input id="apExistingId" placeholder="Only if you already have one"></div>
+      <div class="field"><label>FAN (16 digit, from your National ID) *</label><input id="apFan" maxlength="16" inputmode="numeric" placeholder="Copy exactly from the National ID" required></div>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 0;">This is the 16-digit number printed on the student's National ID (Fayda) — copy it exactly.</p>
     </div>
 
     <div class="apply-step"><div class="num">2</div><h2>Contact &amp; Address</h2></div>
@@ -145,7 +149,13 @@
         <div class="field"><label>Student Phone</label><input id="apStudentPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
       </div>
       <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-4px 0 12px;">Provide at least one — email or phone.</p>
-      <div class="field"><label>Home Address (Town / Kebele / Sefer)</label><input id="apHomeAddress" placeholder="e.g. Sheno, Kebele 02, Arada"></div>
+      <div class="field"><label>Residence (Town / Kebele / Sefer)</label>
+        <div class="grid cols-3">
+          <input id="apResTown" placeholder="Town" required>
+          <input id="apResKebele" placeholder="Kebele">
+          <input id="apResSefer" placeholder="Sefer">
+        </div>
+      </div>
     </div>
 
     <div class="apply-step"><div class="num">3</div><h2>Parent / Guardian Details</h2></div>
@@ -169,6 +179,8 @@
         <label class="doc-upload" id="resultDocUploadLabel" for="apResultDoc">📄 Tap to choose a file</label>
         <input type="file" id="apResultDoc" accept="image/*" style="display:none;">
         <div id="resultDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+        <div class="field" style="margin-top:12px;"><label id="resultScoreLabel">Grade 8 Ministry Result (out of 100)</label><input id="apPrevResultScore" type="number" min="0" max="100" step="0.01" placeholder="e.g. 87"></div>
+        <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 0;">This helps the school place students fairly and evenly across sections.</p>
       </div>
     </div>
 
@@ -309,12 +321,16 @@ function initApplyPage(){
   // applicants (new admissions/transfers) need their most recent report card
   // instead — different wording, same requirement: proof of the previous grade.
   const REQUIRES_PREV_RESULT = ['9','10','11','12'];
+  const resultScoreLabel = document.getElementById('resultScoreLabel');
   const refreshResultBox = () => {
     const g = gradeSel.value;
     resultBox.classList.toggle('hidden', !REQUIRES_PREV_RESULT.includes(g));
     if(resultLabel) resultLabel.textContent = g === '9'
       ? "Grade 8 Ministry Result — photo, max 4MB"
       : "Previous Year's Result / Report Card — photo, max 4MB";
+    if(resultScoreLabel) resultScoreLabel.textContent = g === '9'
+      ? "Grade 8 Ministry Result (out of 100)"
+      : "Previous Year's Result (out of 100)";
   };
   gradeSel.onchange = refreshResultBox;
   refreshResultBox();
@@ -338,6 +354,19 @@ function initApplyPage(){
         : "Please attach a photo of the student's previous year's result/report card.";
       return;
     }
+    const fanVal = LIB.digitsOnly(document.getElementById('apFan').value);
+    if(fanVal.length !== 16){ submitErr.textContent = 'Please enter the full 16-digit FAN from the National ID.'; return; }
+    let prevResultScore = '';
+    if(['9','10','11','12'].includes(gradeApplying)){
+      prevResultScore = document.getElementById('apPrevResultScore').value;
+      const n = Number(prevResultScore);
+      if(prevResultScore === '' || isNaN(n) || n < 0 || n > 100){
+        submitErr.textContent = gradeApplying === '9'
+          ? "Please enter the Grade 8 Ministry result (out of 100)."
+          : "Please enter the previous year's result (out of 100).";
+        return;
+      }
+    }
 
     submitBtn.disabled = true;
     const originalLabel = submitBtn.textContent;
@@ -352,9 +381,15 @@ function initApplyPage(){
       gender: document.getElementById('apGender').value,
       gradeApplying,
       existingIdIfAny: document.getElementById('apExistingId').value,
+      fan: fanVal,
       studentEmail: document.getElementById('apStudentEmail').value,
       studentPhone: document.getElementById('apStudentPhone').value,
-      homeAddress: document.getElementById('apHomeAddress').value,
+      residency: {
+        town: document.getElementById('apResTown').value,
+        kebele: document.getElementById('apResKebele').value,
+        sefer: document.getElementById('apResSefer').value
+      },
+      previousResultScore: prevResultScore,
       guardianName: document.getElementById('apGuardianName').value,
       guardianPhone: document.getElementById('apGuardianPhone').value,
       guardianEmail: document.getElementById('apGuardianEmail').value,

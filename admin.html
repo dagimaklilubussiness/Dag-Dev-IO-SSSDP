@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://firestore.googleapis.com">
 <link rel="preconnect" href="https://www.gstatic.com">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="school-logo.jpg">
+<link rel="apple-touch-icon" href="school-logo.jpg">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -241,6 +243,32 @@ function bootApp(){
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
 function openModal(html){ document.getElementById('modalRoot').innerHTML = `<div class="modal-overlay" id="ov" role="dialog" aria-modal="true">${html}</div>`;
   document.getElementById('ov').addEventListener('click', (e)=>{ if(e.target.id==='ov') closeModal(); }); }
+
+// Shows an uploaded document photo (National ID, Grade 8 result, etc.) inline
+// in a modal instead of opening it via <a href="data:..." target="_blank">.
+// Navigating directly to a data: URI is unreliable in several mobile
+// browsers/WebViews (notably iOS Safari and installed home-screen PWAs — see
+// the app icon in Settings) and can silently do nothing when tapped; an <img>
+// rendered in our own modal always displays correctly since it never asks the
+// browser to navigate anywhere.
+function viewPhotoModal(src, title){
+  openModal(`
+    <div class="modal-box" style="text-align:center;">
+      <h3 style="text-align:left;">${LIB.escapeHtml(title||'Document Photo')}</h3>
+      <img src="${src}" alt="${LIB.escapeAttr(title||'Document photo')}" style="max-width:100%;max-height:70vh;border-radius:10px;border:1px solid var(--line);object-fit:contain;">
+      <div class="modal-close-row" style="margin-top:14px;">
+        <a class="btn outline sm" href="${src}" download="${LIB.escapeAttr((title||'document').replace(/[^a-z0-9]+/gi,'_'))}.jpg">⬇ Save Photo</a>
+        <button class="btn primary" onclick="closeModal()">Close</button>
+      </div>
+    </div>`);
+}
+// Delegated once on the document, so any button anywhere (Applications cards,
+// Student PDFs, etc.) with data-view-photo works with no extra per-page wiring.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-view-photo]');
+  if(!btn) return;
+  viewPhotoModal(btn.dataset.photoSrc, btn.dataset.photoTitle);
+});
 
 // A stronger confirmation step than a plain browser confirm() popup — used
 // before anything that edits or permanently deletes a student record, so an
@@ -658,13 +686,15 @@ function renderApplications(area){
         <div class="field"><label>Birth Date (EC)</label><div>${LIB.escapeHtml(LIB.fmtEthDate(a.ecBirth))} (age ${a.age??'—'})</div></div>
         <div class="field"><label>Gender / Grade Applying</label><div>${genderLabel(a.gender)} · Grade ${LIB.escapeHtml(a.gradeApplying)}</div></div>
         <div class="field"><label>Student Contact</label><div>${LIB.escapeHtml(a.studentPhone||a.studentEmail||'—')}</div></div>
-        <div class="field"><label>Home Address</label><div>${LIB.escapeHtml(a.homeAddress||'—')}</div></div>
+        <div class="field"><label>Residence (Town / Kebele / Sefer)</label><div>${LIB.escapeHtml(LIB.fmtResidency(a.residency))}</div></div>
         <div class="field"><label>Guardian</label><div>${LIB.escapeHtml(a.guardianName)} — ${LIB.escapeHtml(a.guardianPhone)}</div></div>
         <div class="field"><label>Existing School ID</label><div>${LIB.escapeHtml(a.existingIdIfAny||'—')}</div></div>
+        <div class="field"><label>FAN (from applicant)</label><div>${LIB.escapeHtml(a.fan||'—')}</div></div>
+        ${['9','10','11','12'].includes(String(a.gradeApplying)) ? `<div class="field"><label>${String(a.gradeApplying)==='9'?'Grade 8 Ministry Result':"Previous Year's Result"}</label><div>${a.previousResultScore!=null ? LIB.escapeHtml(String(a.previousResultScore))+' / 100' : '—'}</div></div>` : ''}
       </div>
       <div class="row-actions" style="margin-top:6px;">
-        ${a.idDoc ? `<a href="${a.idDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">🪪 View National ID</a>` : `<span class="hint">🪪 No National ID attached</span>`}
-        ${a.resultDoc ? `<a href="${a.resultDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">📄 View ${String(a.gradeApplying)==='9'?'Grade 8 Result':"Previous Year's Result"}</a>` : (['9','10','11','12'].includes(String(a.gradeApplying)) ? `<span class="hint" style="color:var(--danger);">📄 Previous year's result missing</span>` : '')}
+        ${a.idDoc ? `<button type="button" class="btn sm outline" data-view-photo data-photo-src="${LIB.escapeAttr(a.idDoc.dataUrl)}" data-photo-title="National ID — ${LIB.escapeAttr(a.name)}">🪪 View National ID</button>` : `<span class="hint">🪪 No National ID attached</span>`}
+        ${a.resultDoc ? `<button type="button" class="btn sm outline" data-view-photo data-photo-src="${LIB.escapeAttr(a.resultDoc.dataUrl)}" data-photo-title="${String(a.gradeApplying)==='9'?'Grade 8 Result':"Previous Year's Result"} — ${LIB.escapeAttr(a.name)}">📄 View ${String(a.gradeApplying)==='9'?'Grade 8 Result':"Previous Year's Result"}</button>` : (['9','10','11','12'].includes(String(a.gradeApplying)) ? `<span class="hint" style="color:var(--danger);">📄 Previous year's result missing</span>` : '')}
       </div>
       ${a.status==='rejected' && a.rejectReason ? `<p style="font-size:12px;color:var(--danger);margin-top:8px;">Reason: ${LIB.escapeHtml(a.rejectReason)}</p>` : ''}
       ${a.status==='approved' ? `<p style="font-size:12px;color:var(--ok);margin-top:8px;">✓ Approved by ${LIB.escapeHtml(a.reviewedBy)} on ${LIB.fmtDate(a.reviewedAt)}</p>` : ''}
@@ -746,7 +776,7 @@ function approveApplicationModal(appId){
   openModal(`
     <div class="modal-box">
       <h3>Approve &amp; Register — ${LIB.escapeHtml(app.name)}</h3>
-      <p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">Check the details below, assign a FAN and section, then confirm. This creates the real student record.</p>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin-bottom:10px;">Check the details below (the applicant already filled in their FAN, residence, and previous result), assign a section, then confirm. This creates the real student record.</p>
       <div class="field"><label>ሙሉ ስም / Full Name</label><input id="apvName" value="${LIB.escapeAttr(app.name)}"></div>
       <div class="grid cols-2">
         <div class="field"><label>Class</label><input id="apvClass" value="${LIB.escapeAttr(app.gradeApplying)}"></div>
@@ -758,16 +788,17 @@ function approveApplicationModal(appId){
       <div class="field"><label>Phone Number</label><input id="apvPhone" value="${LIB.escapeAttr(app.studentPhone||'')}"></div>
       <div class="field"><label>Residence (Town / Kebele / Sefer)</label>
         <div class="grid cols-3">
-          <input id="apvResTown" placeholder="Town" value="${LIB.escapeAttr(app.homeAddress||'')}">
-          <input id="apvResKebele" placeholder="Kebele">
-          <input id="apvResSefer" placeholder="Sefer">
+          <input id="apvResTown" placeholder="Town" value="${LIB.escapeAttr(app.residency&&app.residency.town||'')}">
+          <input id="apvResKebele" placeholder="Kebele" value="${LIB.escapeAttr(app.residency&&app.residency.kebele||'')}">
+          <input id="apvResSefer" placeholder="Sefer" value="${LIB.escapeAttr(app.residency&&app.residency.sefer||'')}">
         </div>
       </div>
       <div class="grid cols-2">
         <div class="field"><label>Family / Guardian Name</label><input id="apvGuardianName" value="${LIB.escapeAttr(app.guardianName||'')}"></div>
         <div class="field"><label>Family Number</label><input id="apvGuardianPhone" value="${LIB.escapeAttr(app.guardianPhone||'')}"></div>
       </div>
-      <div class="field"><label>FAN (16 digit) *</label><input id="apvFan" maxlength="16" inputmode="numeric" placeholder="Copy exactly from the National ID"><p class="hint" style="font-size:11px;margin-top:4px;">FAN is already printed on the student's National ID — copy it exactly, do not invent a number.</p></div>
+      <div class="field"><label>FAN (16 digit) *</label><input id="apvFan" maxlength="16" inputmode="numeric" value="${LIB.escapeAttr(app.fan||'')}" placeholder="Copy exactly from the National ID"><p class="hint" style="font-size:11px;margin-top:4px;">Filled in by the applicant — double-check it against the National ID photo above before confirming.</p></div>
+      ${['9','10','11','12'].includes(String(app.gradeApplying)) ? `<div class="field"><label>${String(app.gradeApplying)==='9'?'Grade 8 Ministry Result':"Previous Year's Result"} (out of 100)</label><input id="apvPrevResult" type="number" min="0" max="100" step="0.01" value="${app.previousResultScore!=null?LIB.escapeAttr(String(app.previousResultScore)):''}"><p class="hint" style="font-size:11px;margin-top:4px;">Used later by 🎲 Auto-Distribute Sections to spread ability fairly and evenly across sections.</p></div>` : ''}
       <div id="apvErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
         <button class="btn outline" onclick="closeModal()">Cancel</button>
@@ -793,7 +824,8 @@ function approveApplicationModal(appId){
       },
       guardianName: document.getElementById('apvGuardianName').value,
       guardianPhone: document.getElementById('apvGuardianPhone').value,
-      fan: document.getElementById('apvFan').value
+      fan: document.getElementById('apvFan').value,
+      previousResult: document.getElementById('apvPrevResult') ? document.getElementById('apvPrevResult').value : null
     };
     const res = LIB.approveApplication(appId, fields);
     if(!res.ok){ errBox.textContent = res.error; return; }
@@ -899,6 +931,7 @@ function addStudentModal(){
         <div class="field"><label>Family Number</label><input id="mGuardianPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
       </div>
       <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16" placeholder="Copy exactly from the National ID"><p class="hint" style="font-size:11px;margin-top:4px;">FAN is already printed on the student's National ID — copy it exactly, do not invent a number.</p></div>
+      <div class="field"><label>Previous Result (out of 100) — Grade 8 Ministry result for new Grade 9s</label><input id="mPrevResult" type="number" min="0" max="100" step="0.01" placeholder="optional"><p class="hint" style="font-size:11px;margin-top:4px;">Used by 🎲 Auto-Distribute Sections to spread ability fairly and evenly across sections.</p></div>
       <div id="mErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
         <button class="btn outline" onclick="closeModal()">Cancel</button>
@@ -923,7 +956,8 @@ function addStudentModal(){
       },
       guardianName: document.getElementById('mGuardianName').value,
       guardianPhone: document.getElementById('mGuardianPhone').value,
-      fan: document.getElementById('mFan').value
+      fan: document.getElementById('mFan').value,
+      previousResult: document.getElementById('mPrevResult').value
     });
     if(!res.ok){ document.getElementById('mErr').textContent = res.error; return; }
     closeModal(); render('Students');
@@ -936,7 +970,7 @@ function distributeSectionsModal(){
   openModal(`
     <div class="modal-box">
       <h3>🎲 Auto-Distribute Sections</h3>
-      <p class="hint" style="color:var(--grey);font-size:12px;margin-bottom:10px;">Spreads a grade's students evenly and randomly across sections — a fair mix rather than alphabetical order. You can still move any individual student afterward from their profile (Edit → Section) for special cases.</p>
+      <p class="hint" style="color:var(--grey);font-size:12px;margin-bottom:10px;">Spreads a grade's students evenly across sections. When a student's Previous Result (Grade 8 Ministry result / prior year's score, out of 100) is on file, it's used to balance ability fairly across sections — each section ends up with a similar mix of scores instead of one section getting all the top performers. Students with no score on file are placed randomly. You can still move any individual student afterward from their profile (Edit → Section) for special cases.</p>
       <div class="field"><label>Grade</label>
         <select id="dsGrade">${grades.length ? grades.map(g=>`<option value="${LIB.escapeAttr(g)}">Class ${LIB.escapeHtml(g)}</option>`).join('') : `<option value="">— No students yet —</option>`}</select>
       </div>
@@ -1023,6 +1057,7 @@ async function generateStudentPDF(studentId){
   // the same jsPDF font limitation applies to any Amharic text, not just
   // dates. Ask if you'd like full Amharic support added (needs an embedded font).
   addLine('Residency', LIB.fmtResidency ? LIB.fmtResidency(s.residency) : [s.residency&&s.residency.town, s.residency&&s.residency.kebele, s.residency&&s.residency.sefer].filter(Boolean).join(', '));
+  addLine('Previous Result', s.previousResult!=null ? `${s.previousResult} / 100` : '—');
   addLine('Account Status', s.activated ? 'Active' : 'Not activated yet');
   addLine('Registered On', s.createdAt ? LIB.fmtDate(s.createdAt) : '—');
   addLine('Batch (EC Year)', s.batchYear || '—');
@@ -1106,6 +1141,7 @@ function viewStudentModal(id){
         <div class="field"><label>Family Number</label><input id="stuGuardianPhone" inputmode="tel" value="${LIB.escapeAttr(s.guardianPhone||'')}"></div>
       </div>
       <div class="field"><label>FAN (16 digit)</label><input id="stuFan" value="${LIB.escapeAttr(s.fan)}" maxlength="16" inputmode="numeric"></div>
+      <div class="field"><label>Previous Result (out of 100) — Grade 8 Ministry result for new Grade 9s</label><input id="stuPrevResult" type="number" min="0" max="100" step="0.01" value="${s.previousResult!=null?LIB.escapeAttr(String(s.previousResult)):''}" placeholder="optional"><p class="hint" style="font-size:11px;margin-top:4px;">Used by 🎲 Auto-Distribute Sections to spread ability fairly and evenly across sections.</p></div>
       <div class="grid cols-2">
         <div class="field"><label>Status</label><div>${s.activated?'Active':'Not activated yet'}</div></div>
         <div class="field"><label>Current PIN</label><div style="font-weight:800;letter-spacing:.15em;">${s.pin ? LIB.escapeHtml(s.pin) : '— not set yet —'}</div></div>
@@ -1151,7 +1187,8 @@ function viewStudentModal(id){
         sefer: document.getElementById('stuResSefer').value.trim()
       },
       guardianName: document.getElementById('stuGuardianName').value.trim(),
-      guardianPhone: document.getElementById('stuGuardianPhone').value.trim()
+      guardianPhone: document.getElementById('stuGuardianPhone').value.trim(),
+      previousResult: (() => { const v = document.getElementById('stuPrevResult').value; return (v==='' ? null : Number(v)); })()
     };
     // Ask before applying — saving used to happen instantly on click, which
     // is an easy way to overwrite a record by accident.
@@ -1607,7 +1644,10 @@ function renderStaff(area){
     </div>
     <div class="table-wrap card" style="margin-top:12px;"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead><tbody>
       ${db.staff.map(s=>`<tr><td>${LIB.escapeHtml(s.name)}</td><td>${LIB.escapeHtml(s.username)}</td><td>${({director:'Director',library:'Library Staff',registrar:'Registrar'})[s.role]||s.role}</td>
-        <td>${s.id!==CURRENT.id?`<button class="btn sm danger" data-del-staff="${s.id}" data-del-staff-name="${LIB.escapeAttr(s.name)}">Remove</button>`:'<span class="badge grey">You</span>'}</td></tr>`).join('')}
+        <td class="row-actions">
+          <button class="btn sm outline" data-edit-staff="${s.id}" data-edit-staff-name="${LIB.escapeAttr(s.name)}" data-edit-staff-user="${LIB.escapeAttr(s.username)}">✎ Edit</button>
+          ${s.id!==CURRENT.id?`<button class="btn sm danger" data-del-staff="${s.id}" data-del-staff-name="${LIB.escapeAttr(s.name)}">Remove</button>`:'<span class="badge grey">You</span>'}
+        </td></tr>`).join('')}
     </tbody></table></div>
   `;
   document.getElementById('sfAdd').onclick = () => {
@@ -1616,6 +1656,37 @@ function renderStaff(area){
     if(!res.ok) return alert(res.error);
     render('Staff');
   };
+  // Name/Username can now be changed at any time — it used to be fixed
+  // forever after Setup/Add Staff, which was a real problem for a typo or a
+  // legal name change. Works for any staff row, including the Registrar's own.
+  document.querySelectorAll('[data-edit-staff]').forEach(b=>b.onclick=()=>{
+    const staffId = b.dataset.editStaff;
+    openModal(`
+      <div class="modal-box">
+        <h3>Edit Staff Account</h3>
+        <div class="field"><label>Name</label><input id="esName" value="${LIB.escapeAttr(b.dataset.editStaffName)}"></div>
+        <div class="field"><label>Username</label><input id="esUser" value="${LIB.escapeAttr(b.dataset.editStaffUser)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div id="esErr" style="color:var(--danger);font-size:12.5px;"></div>
+        <div class="modal-close-row">
+          <button class="btn outline" onclick="closeModal()">Cancel</button>
+          <button class="btn primary" id="esSave">Save</button>
+        </div>
+      </div>`);
+    document.getElementById('esSave').onclick = () => {
+      const res = LIB.adminUpdateStaffProfile(staffId, { name: document.getElementById('esName').value, username: document.getElementById('esUser').value });
+      if(!res.ok){ document.getElementById('esErr').textContent = res.error; return; }
+      // If editing our own account, refresh CURRENT + the sidebar name tag
+      // immediately — otherwise the old name would linger on screen (and on
+      // anything posted this session) until the next login.
+      if(staffId === CURRENT.id){
+        CURRENT = LIB.currentStaff();
+        const tag = document.getElementById('roleTag');
+        const roleLabels = { director:'Director', library:'Library Staff', registrar:'Registrar' };
+        if(tag) tag.textContent = `${CURRENT.name} — ${roleLabels[CURRENT.role]||CURRENT.role}`;
+      }
+      closeModal(); render('Staff');
+    };
+  });
   // Confirm before removing — a bare click used to delete the account instantly,
   // which is way too easy to trigger by an accidental tap.
   document.querySelectorAll('[data-del-staff]').forEach(b=>b.onclick=()=>{
