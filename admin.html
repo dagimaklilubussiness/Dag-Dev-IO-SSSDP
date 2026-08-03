@@ -120,6 +120,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="firebase-config.js"></script>
 <script src="app.js"></script>
 <script>
@@ -227,6 +228,14 @@ function bootApp(){
     };
   });
   render('Dashboard');
+  // Housekeeping: drop finished loan records older than 30 days (see
+  // purgeOldLoanHistory) — a no-op write if nothing is old enough yet, so
+  // it's safe to just run this quietly every time someone logs in.
+  LIB.purgeOldLoanHistory();
+  // Same idea for announcement attachments older than 30 days (see
+  // purgeOldAnnouncementMedia) — only the attached photo/file is removed,
+  // never the announcement text itself.
+  LIB.purgeOldAnnouncementMedia();
 }
 
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
@@ -291,6 +300,28 @@ function genderFieldHtml(prefix, gender){
       <option value="female" ${gender==='female'?'selected':''}>Female</option>
     </select>
   </div>`;
+}
+// Natural / Social Science stream — only meaningful from Grade 11 onward, so
+// this box starts hidden and wireStreamField() shows/hides it as the Class
+// field changes. adminRegisterStudent/adminEditStudent already ignore this
+// value for any other grade, but hiding it avoids confusing a Grade 9/10 form.
+function streamFieldHtml(prefix, stream){
+  return `<div class="field hidden" id="${prefix}StreamBox"><label>Stream (Grade 11–12 only)</label>
+    <select id="${prefix}Stream">
+      <option value="">— Not applicable —</option>
+      <option value="natural" ${stream==='natural'?'selected':''}>Natural Science</option>
+      <option value="social" ${stream==='social'?'selected':''}>Social Science</option>
+    </select>
+  </div>`;
+}
+function wireStreamField(prefix, classInputId){
+  const classInput = document.getElementById(classInputId);
+  const box = document.getElementById(prefix + 'StreamBox');
+  if(!classInput || !box) return;
+  const refresh = () => box.classList.toggle('hidden', !['11','12'].includes(String(classInput.value).trim()));
+  classInput.addEventListener('input', refresh);
+  classInput.addEventListener('change', refresh);
+  refresh();
 }
 function ecBirthFieldHtml(prefix, ec){
   const curYear = LIB.ethToday().year;
@@ -482,7 +513,7 @@ function computeStudentStats(students){
     else bucket.unspecified++;
   };
   const totals = { all:0, male:0, female:0, unspecified:0 };
-  const byGrade = {}, byAge = {}, bySection = {};
+  const byGrade = {}, byAge = {}, bySection = {}, byStream = {};
   const byDay = {};
   students.forEach(s => {
     bump(totals, s);
@@ -495,14 +526,21 @@ function computeStudentStats(students){
     const sec = `${g}${String(s.section||'').trim() || '—'}`;
     bySection[sec] = bySection[sec] || { all:0, male:0, female:0, unspecified:0, grade:g };
     bump(bySection[sec], s);
+    // Natural/Social Science stream only exists from Grade 11 onward.
+    if(['11','12'].includes(g)){
+      const st = ['natural','social'].includes(s.stream) ? s.stream : 'unset';
+      byStream[g] = byStream[g] || { natural:0, social:0, unset:0 };
+      byStream[g][st]++;
+    }
     const day = (s.createdAt||'').slice(0,10);
     if(day){ byDay[day] = (byDay[day]||0) + 1; }
   });
   const gradeRows = Object.keys(byGrade).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(g => ({ grade:g, ...byGrade[g] }));
   const ageRows = Object.keys(byAge).sort((a,b)=> a==='—'?1:b==='—'?-1:Number(a)-Number(b)).map(a => ({ age:a, ...byAge[a] }));
   const sectionRows = Object.keys(bySection).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(sec => ({ section:sec, ...bySection[sec] }));
+  const streamRows = Object.keys(byStream).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true})).map(g => ({ grade:g, ...byStream[g] }));
   const trend = Object.keys(byDay).sort().map(d => ({ label: d.slice(5), value: byDay[d] })); // MM-DD
-  return { totals, gradeRows, ageRows, sectionRows, trend };
+  return { totals, gradeRows, ageRows, sectionRows, streamRows, trend };
 }
 
 function renderStatsDashboard(area){
@@ -581,6 +619,14 @@ function renderStatsDashboard(area){
       </tbody></table>
     </div>
 
+    <div class="section-title"><h2>🔬 Grade 11–12 by Stream (Natural / Social)</h2></div>
+    <div class="table-wrap card">
+      <table><thead><tr><th>Grade</th><th>Natural Science</th><th>Social Science</th><th>Not Set</th></tr></thead><tbody>
+      ${stats.streamRows.length ? stats.streamRows.map(r=>`<tr><td>Grade ${LIB.escapeHtml(r.grade)}</td><td>${r.natural}</td><td>${r.social}</td><td>${r.unset}</td></tr>`).join('')
+        : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No Grade 11–12 students yet</td></tr>`}
+      </tbody></table>
+    </div>
+
     <div class="section-title"><h2>🎂 By Age — Male / Female / All</h2></div>
     <div class="table-wrap card">
       <table><thead><tr><th>Age</th><th>Male</th><th>Female</th><th>All</th></tr></thead><tbody>
@@ -626,19 +672,66 @@ function renderApplications(area){
       <div class="modal-close-row" style="margin-top:12px;">
         <button class="btn danger sm" data-reject-app="${a.id}">✕ Reject</button>
         <button class="btn primary sm" data-approve-app="${a.id}">✓ Approve &amp; Register</button>
-      </div>` : ''}
+      </div>` : `
+      <div class="row-actions" style="margin-top:8px;">
+        ${a.status==='approved' && a.linkedStudentId ? `<button class="btn sm outline" data-pdf-app="${a.linkedStudentId}">⬇ Download Full Record (PDF)</button>` : ''}
+        <button class="btn sm outline" data-del-app="${a.id}">🗑 Delete from History</button>
+      </div>`}
     </div>`;
 
   area.innerHTML = `
     <h2>📝 Applications</h2>
     <p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">Public enrollment submissions from the "Enroll" page — review, then Approve to create the real student record (you'll assign the FAN), or Reject.</p>
+    <div id="appDeadlineBanner"></div>
     <div class="section-title"><h2>⏳ Pending (${pending.length})</h2></div>
     ${pending.length ? pending.map(a=>cardHtml(a,true)).join('') : `<div class="empty">No pending applications right now.</div>`}
-    <div class="section-title"><h2>📜 History (${reviewed.length})</h2></div>
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <h2>📜 History (${reviewed.length})</h2>
+      ${reviewed.length ? `<button class="btn sm outline" id="clearAppHistBtn">🗑 Clear All History</button>` : ''}
+    </div>
     ${reviewed.length ? reviewed.map(a=>cardHtml(a,false)).join('') : `<div class="empty">No reviewed applications yet.</div>`}
   `;
   area.querySelectorAll('[data-approve-app]').forEach(b => b.onclick = () => approveApplicationModal(b.dataset.approveApp));
   area.querySelectorAll('[data-reject-app]').forEach(b => b.onclick = () => rejectApplicationModal(b.dataset.rejectApp));
+  area.querySelectorAll('[data-del-app]').forEach(b => b.onclick = () => {
+    if(!confirm('Delete this application permanently? This cannot be undone.')) return;
+    const res = LIB.removeApplication(b.dataset.delApp);
+    if(!res.ok){ alert(res.error); return; }
+    render('Applications');
+  });
+  area.querySelectorAll('[data-pdf-app]').forEach(b => b.onclick = () => generateStudentPDF(b.dataset.pdfApp));
+  const clearHistBtn = document.getElementById('clearAppHistBtn');
+  if(clearHistBtn) clearHistBtn.onclick = () => {
+    if(!confirm(`Delete all ${reviewed.length} reviewed application(s) from History? This cannot be undone — students already approved keep their student record either way.`)) return;
+    const res = LIB.clearApplicationHistory();
+    if(!res.ok){ alert(res.error); return; }
+    render('Applications');
+  };
+
+  // ---- Live enrollment-deadline countdown, visible to the Registrar too ----
+  const drawDeadlineBanner = () => {
+    const box = document.getElementById('appDeadlineBanner');
+    if(!box) return; // view changed away while the timer was running
+    const deadline = LIB.getEnrollmentDeadline();
+    if(!deadline){ box.innerHTML = ''; return; }
+    if(LIB.isEnrollmentClosed()){
+      box.innerHTML = `<div class="card" style="background:#fdecec;border:1px solid #f2c1c6;text-align:center;padding:18px;margin-bottom:14px;">
+        <div style="font-size:22px;font-weight:900;color:var(--danger);letter-spacing:.03em;">⛔ REGISTRATION IS CLOSED</div>
+        <div style="font-size:12.5px;color:var(--grey);margin-top:4px;">The deadline passed on ${LIB.fmtDateTime(deadline)}. Change it in Settings to reopen enrollment.</div>
+      </div>`;
+      return;
+    }
+    const msLeft = new Date(deadline).getTime() - Date.now();
+    const d = Math.floor(msLeft / 86400000);
+    const h = Math.floor((msLeft % 86400000) / 3600000);
+    const m = Math.floor((msLeft % 3600000) / 60000);
+    box.innerHTML = `<div class="card" style="background:#fff8e6;border:1px solid #f0dda0;text-align:center;padding:14px;margin-bottom:14px;">
+      <div style="font-size:15px;font-weight:800;color:var(--black);">⏳ Enrollment closes in ${d}d ${String(h).padStart(2,'0')}h ${String(m).padStart(2,'0')}m</div>
+    </div>`;
+  };
+  drawDeadlineBanner();
+  clearInterval(window._appDeadlineTimer);
+  window._appDeadlineTimer = setInterval(drawDeadlineBanner, 30000);
 }
 
 function approveApplicationModal(appId){
@@ -653,6 +746,7 @@ function approveApplicationModal(appId){
         <div class="field"><label>Class</label><input id="apvClass" value="${LIB.escapeAttr(app.gradeApplying)}"></div>
         <div class="field"><label>Section</label><input id="apvSection" placeholder="e.g. A"></div>
       </div>
+      ${streamFieldHtml('apv', app.streamApplying||'')}
       <div class="grid cols-2">${genderFieldHtml('apv', app.gender)}</div>
       ${ecBirthFieldHtml('apv', app.ecBirth)}
       <div class="field"><label>Phone Number</label><input id="apvPhone" value="${LIB.escapeAttr(app.studentPhone||'')}"></div>
@@ -675,6 +769,7 @@ function approveApplicationModal(appId){
       </div>
     </div>`);
   wireEcBirthField('apv', app.ecBirth);
+  wireStreamField('apv', 'apvClass');
   document.getElementById('apvSaveBtn').onclick = () => {
     const errBox = document.getElementById('apvErr');
     const fields = {
@@ -682,6 +777,7 @@ function approveApplicationModal(appId){
       klass: document.getElementById('apvClass').value,
       section: document.getElementById('apvSection').value,
       gender: document.getElementById('apvGender').value,
+      stream: document.getElementById('apvStream') ? document.getElementById('apvStream').value : '',
       ecBirth: readEcBirthField('apv'),
       phone: document.getElementById('apvPhone').value,
       residency: {
@@ -781,6 +877,7 @@ function addStudentModal(){
         <div class="field"><label>Class</label><input id="mClass" placeholder="e.g. 10"></div>
         <div class="field"><label>Section</label><input id="mSection" placeholder="e.g. A"></div>
       </div>
+      ${streamFieldHtml('m', '')}
       ${genderFieldHtml('m', '')}
       ${ecBirthFieldHtml('m', null)}
       <div class="field"><label>Phone Number</label><input id="mPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
@@ -803,12 +900,14 @@ function addStudentModal(){
       </div>
     </div>`);
   wireEcBirthField('m', null);
+  wireStreamField('m', 'mClass');
   document.getElementById('mSave').onclick = () => {
     const res = LIB.adminRegisterStudent({
       name: document.getElementById('mName').value,
       klass: document.getElementById('mClass').value,
       section: document.getElementById('mSection').value,
       gender: document.getElementById('mGender').value,
+      stream: document.getElementById('mStream') ? document.getElementById('mStream').value : '',
       ecBirth: readEcBirthField('m'),
       phone: document.getElementById('mPhone').value,
       residency: {
@@ -856,6 +955,122 @@ function distributeSectionsModal(){
   };
 }
 
+// ---------------- Student record PDF export ----------------
+// Builds one PDF per student: their info, registration/application history,
+// attached ID/result photos (if the Registrar hasn't cleared them yet — see
+// Settings > Storage), and a recent borrow-history summary. Downloads
+// automatically named after the student, e.g. "Dagim Aklilu.pdf" — this is
+// what "save in their students name" means: no manual renaming needed.
+function sanitizeFilename(name){
+  return (name || 'Student').replace(/[\\/:*?"<>|]/g, '').trim() || 'Student';
+}
+async function generateStudentPDF(studentId){
+  const db = LIB.getDB();
+  const s = db.students.find(x => x.id === studentId);
+  if(!s){ alert('Student not found.'); return; }
+  const app = LIB.listApplications().find(a => a.linkedStudentId === studentId);
+  const settings = LIB.getSettings();
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 42;
+  let y = margin;
+
+  const addLine = (label, value, opts) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text(label, margin, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+    doc.text(String(value || '—'), margin + 150, y, { maxWidth: pageW - margin*2 - 150 });
+    y += (opts && opts.gap) || 20;
+  };
+  const sectionHeader = (text) => {
+    y += 6;
+    doc.setFillColor(139, 18, 32); // maroon, matches the school brand
+    doc.rect(margin, y - 12, pageW - margin*2, 20, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text(text, margin + 8, y + 2);
+    doc.setTextColor(0,0,0);
+    y += 26;
+  };
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+  doc.text(settings.schoolName || 'SCHOOL', margin, y); y += 20;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(12);
+  doc.text('Student Registration Record', margin, y); y += 8;
+  doc.setDrawColor(200,200,200); doc.line(margin, y, pageW - margin, y); y += 22;
+
+  sectionHeader('Student Information');
+  addLine('Full Name', s.name);
+  addLine('FAN', s.fan);
+  addLine('Class / Section', `${s.class || '—'}${s.section ? ' / ' + s.section : ''}`);
+  if(['11','12'].includes(String(s.class))) addLine('Stream', s.stream === 'natural' ? 'Natural Science' : s.stream === 'social' ? 'Social Science' : 'Not set');
+  addLine('Gender', s.gender === 'male' ? 'Male' : s.gender === 'female' ? 'Female' : '—');
+  addLine('Birth Date (EC)', LIB.fmtEthDate(s.ecBirth) + (s.age != null ? ` (age ${s.age})` : ''));
+  addLine('Phone', s.phone);
+  addLine('Guardian', `${s.guardianName || '—'} — ${s.guardianPhone || '—'}`);
+  addLine('Residency', LIB.fmtResidency ? LIB.fmtResidency(s.residency) : [s.residency&&s.residency.town, s.residency&&s.residency.kebele, s.residency&&s.residency.sefer].filter(Boolean).join(', '));
+  addLine('Account Status', s.activated ? 'Active' : 'Not activated yet');
+  addLine('Registered On', s.createdAt ? LIB.fmtDate(s.createdAt) : '—');
+
+  if(app){
+    sectionHeader('Registration History (from Application)');
+    addLine('Reference Number', app.referenceNumber);
+    addLine('Submitted On', LIB.fmtDate(app.submittedAt));
+    addLine('Reviewed By', app.reviewedBy);
+    addLine('Reviewed On', app.reviewedAt ? LIB.fmtDate(app.reviewedAt) : '—');
+  }
+
+  const reqs = LIB.myRequests(studentId);
+  const cutoff = Date.now() - 30*24*60*60*1000;
+  const recentReqs = reqs.filter(r => new Date(r.requestedAt||0).getTime() >= cutoff);
+  sectionHeader('Recent Borrow History (last 30 days)');
+  if(!recentReqs.length){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    doc.text('No borrow activity in the last 30 days.', margin, y); y += 18;
+  } else {
+    recentReqs.forEach(r => {
+      const bk = db.books.find(b => b.id === r.bookId);
+      doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+      doc.text(`• ${bk ? bk.title : '—'} — ${r.status}`, margin, y, { maxWidth: pageW - margin*2 });
+      y += 16;
+    });
+  }
+
+  // Attached photos — only if the Registrar hasn't cleared them from this
+  // application yet (see Settings > Storage & Applications).
+  const photos = [];
+  if(app && app.idDoc && app.idDoc.dataUrl) photos.push({ label: 'National ID', dataUrl: app.idDoc.dataUrl });
+  if(app && app.resultDoc && app.resultDoc.dataUrl) photos.push({ label: 'Grade 8 Result', dataUrl: app.resultDoc.dataUrl });
+  if(photos.length){
+    doc.addPage();
+    y = margin;
+    sectionHeader('Attached Documents');
+    for(const p of photos){
+      doc.setFont('helvetica','bold'); doc.setFontSize(11);
+      doc.text(p.label, margin, y); y += 8;
+      try {
+        const imgW = 220, imgH = 160;
+        doc.addImage(p.dataUrl, 'JPEG', margin, y, imgW, imgH);
+        y += imgH + 20;
+      } catch(e){
+        doc.setFont('helvetica','normal'); doc.setFontSize(10);
+        doc.text('(could not embed image)', margin, y); y += 20;
+      }
+      if(y > doc.internal.pageSize.getHeight() - 200){ doc.addPage(); y = margin; }
+    }
+  } else if(app){
+    doc.setFont('helvetica','italic'); doc.setFontSize(9.5); doc.setTextColor(120,120,120);
+    doc.text('(No attached document photos — cleared to save storage, or none were attached.)', margin, y);
+    doc.setTextColor(0,0,0);
+  }
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(150,150,150);
+  doc.text(`Generated ${new Date().toLocaleString()} — ${settings.schoolName || ''}`, margin, doc.internal.pageSize.getHeight() - 20);
+
+  doc.save(`${sanitizeFilename(s.name)}.pdf`);
+}
+
 function viewStudentModal(id){
   const s = LIB.getDB().students.find(x=>x.id===id);
   const reqs = LIB.myRequests(id);
@@ -871,6 +1086,7 @@ function viewStudentModal(id){
         <div class="field"><label>Class</label><input id="stuClass" value="${LIB.escapeAttr(String(s.class||''))}"></div>
         <div class="field"><label>Section</label><input id="stuSection" value="${LIB.escapeAttr(String(s.section||''))}"></div>
       </div>
+      ${streamFieldHtml('stu', s.stream||'')}
       <div class="grid cols-2">
         ${genderFieldHtml('stu', s.gender)}
       </div>
@@ -893,19 +1109,26 @@ function viewStudentModal(id){
         <div class="field"><label>Current PIN</label><div style="font-weight:800;letter-spacing:.15em;">${s.pin ? LIB.escapeHtml(s.pin) : '— not set yet —'}</div></div>
       </div>
       <div id="stuEditErr" style="color:var(--danger);font-size:12.5px;"></div>
-      <div class="field"><label>Borrow history</label>
-        <div style="font-size:12.5px;">${reqs.length? reqs.map(r=>{
-          const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
-          return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
-        }).join('<br>') : 'No history'}</div>
+      <div class="field"><label>📖 የውሰት ታሪክ / Borrow History <span class="hint" style="font-weight:400;">(last 30 days — older history is cleared automatically to save space)</span></label>
+        <div style="font-size:12.5px;">${(() => {
+          const cutoff = Date.now() - 30*24*60*60*1000;
+          const recent = reqs.filter(r => new Date(r.requestedAt||r.date||0).getTime() >= cutoff);
+          if(!recent.length) return 'No history in the last 30 days';
+          return recent.map(r=>{
+            const bk = LIB.getDB().books.find(b=>b.id===r.bookId);
+            return `${LIB.escapeHtml(bk?bk.title:'—')} — ${r.status}`;
+          }).join('<br>');
+        })()}</div>
       </div>
       <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
         <button class="btn danger" id="stuRemoveBtn">🗑 Withdraw / Remove Student</button>
+        <button class="btn outline" id="stuPdfBtn">⬇ Download Full Record (PDF)</button>
         <button class="btn outline" onclick="closeModal()">Cancel</button>
         <button class="btn primary" id="stuSaveBtn">Save Changes</button>
       </div>
     </div>`);
   wireEcBirthField('stu', s.ecBirth);
+  wireStreamField('stu', 'stuClass');
   document.getElementById('stuSaveBtn').onclick = () => {
     const errBox = document.getElementById('stuEditErr');
     const name = document.getElementById('stuName').value.trim();
@@ -918,6 +1141,7 @@ function viewStudentModal(id){
     const patch = {
       name, class: document.getElementById('stuClass').value, section: document.getElementById('stuSection').value,
       gender: document.getElementById('stuGender').value, ecBirth, age: ecBirth ? LIB.computeAgeFromEC(ecBirth) : s.age,
+      stream: document.getElementById('stuStream') ? document.getElementById('stuStream').value : (s.stream||''),
       phone: document.getElementById('stuPhone').value.trim(), fan: newFan,
       residency: {
         town: document.getElementById('stuResTown').value.trim(),
@@ -936,6 +1160,7 @@ function viewStudentModal(id){
       onConfirm: () => { LIB.adminEditStudent(id, patch); render('Students'); }
     });
   };
+  document.getElementById('stuPdfBtn').onclick = () => generateStudentPDF(id);
   document.getElementById('stuRemoveBtn').onclick = () => {
     openConfirmModal({
       title: 'Remove this student?',
@@ -1202,11 +1427,12 @@ function renderAnnouncements(area, editId){
           <option value="12">#GRADE12</option>
         </select>
       </div>
-      <div class="field"><label>Attach Photo / Video / File (uploads directly, like Telegram)</label>
-        <input type="file" id="anFile">
-        <div id="anFileMsg" style="font-size:11.5px;color:var(--grey);margin-top:4px;">${editing&&editing.mediaUrl?`✓ Keeping current attachment${editing.mediaName?': '+LIB.escapeHtml(editing.mediaName):''} (choose a file to replace it)`:''}</div>
+      <div class="field"><label>Attach a Photo (up to 4MB, compressed automatically)</label>
+        <input type="file" id="anFile" accept="image/*">
+        <div id="anFileMsg" style="font-size:11.5px;color:var(--grey);margin-top:4px;">${editing&&editing.mediaUrl?`✓ Keeping current attachment${editing.mediaName?': '+LIB.escapeHtml(editing.mediaName):''} (choose a photo to replace it)`:''}</div>
+        <p class="hint" style="font-size:11px;margin-top:4px;">Attached photos are removed automatically 30 days after posting to save storage — the announcement text stays. For a video or a large file, use the link field below instead (e.g. a YouTube or Google Drive link) — no size limit, and it's free.</p>
       </div>
-      <div class="field"><label>…or paste a Media URL instead (optional, used only if no file is attached)</label><input id="anMedia" placeholder="https://..." value="${editing&&editing.mediaUrl&&editing.mediaUrl.startsWith('http')?LIB.escapeAttr(editing.mediaUrl):''}"></div>
+      <div class="field"><label>…or paste a Video/File Link instead (e.g. YouTube, Google Drive)</label><input id="anMedia" placeholder="https://..." value="${editing&&editing.mediaUrl&&editing.mediaUrl.startsWith('http')?LIB.escapeAttr(editing.mediaUrl):''}"></div>
       <div class="row-actions">
         <button class="btn primary" id="anPost">${editing?'Save Changes':'Post Announcement'}</button>
         ${editing?'<button class="btn outline" id="anCancelEdit">Cancel</button>':''}
@@ -1245,22 +1471,22 @@ function renderAnnouncements(area, editId){
   document.getElementById('anFile').onchange = (e) => {
     const f = e.target.files[0]; if(!f) return;
     const msg = document.getElementById('anFileMsg');
-    msg.textContent = 'Uploading...';
-    const isImg = f.type.startsWith('image/');
-    const isVid = f.type.startsWith('video/');
-    const done = (dataUrl) => {
-      if(!dataUrl){ msg.textContent = 'Could not read file'; return; }
-      pendingMedia = { url: dataUrl, type: isImg?'image':(isVid?'video':'file'), name: f.name };
-      msg.textContent = `✓ Attached: ${f.name}`;
-    };
-    if(isImg) LIB.fileToResizedDataURL(f, 1000, done); else LIB.fileToDataURL(f, done);
+    msg.textContent = `Compressing ${f.name}…`;
+    // Free, no-cost path: the photo is compressed in the browser and embedded
+    // directly — see LIB.uploadAnnouncementMedia (compressAnnouncementPhoto in app.js).
+    LIB.uploadAnnouncementMedia(f, (res) => {
+      if(!res.ok){ msg.textContent = ''; alert(res.error); return; }
+      pendingMedia = { url: res.url, type: 'image', name: res.name };
+      msg.textContent = `✓ Attached: ${res.name} (compressed to ${(res.size/1024).toFixed(0)}KB) — will auto-remove after 30 days`;
+    });
   };
   document.getElementById('anPost').onclick = () => {
     const title = document.getElementById('anTitle').value.trim();
     const body = document.getElementById('anBody').value.trim();
     if(!title || !body) return alert('Title and message required');
     const urlVal = document.getElementById('anMedia').value.trim();
-    const media = pendingMedia.url ? pendingMedia : (urlVal ? { url:urlVal, type:'image', name:'' } : { url:'', type:'', name:'' });
+    const urlIsImage = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(urlVal);
+    const media = pendingMedia.url ? pendingMedia : (urlVal ? { url:urlVal, type: urlIsImage?'image':'file', name:'' } : { url:'', type:'', name:'' });
     const audience = document.getElementById('anAudience').value;
     if(editing){
       const res = LIB.updateAnnouncement(editing.id, CURRENT.id, { title, body, mediaUrl: media.url, mediaType: media.type, mediaName: media.name, audience });

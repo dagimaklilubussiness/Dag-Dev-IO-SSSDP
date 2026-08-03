@@ -241,7 +241,7 @@ const LIB = (() => {
     // Student profile photos were removed (storage-safety decision) — strip any
     // leftover photo data from students registered before this change so the
     // space is actually reclaimed the next time this loads and saves.
-    if(db.students){ db.students.forEach(s => { if(s && 'photo' in s) delete s.photo; }); }
+    if(db.students){ db.students.forEach(s => { if(s && 'photo' in s) delete s.photo; if(s && s.stream === undefined) s.stream = ""; }); }
     return db;
   }
 
@@ -587,7 +587,7 @@ const LIB = (() => {
   /* ---------------- auth: students ---------------- */
   // Admin pre-registers the student's official record with just a 16-digit FAN
   // (no FIN needed — kept out of the flow entirely per school policy).
-  function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone, residency, guardianName, guardianPhone}){
+  function adminRegisterStudent({name, fan, klass, section, gender, ecBirth, phone, residency, guardianName, guardianPhone, stream}){
     // Registrar-only. Only blocks when a STAFF session of the wrong role is active
     // (Library Staff trying this from the admin console) — this function is also
     // called internally by approveApplication(), which already verified the actor
@@ -599,9 +599,12 @@ const LIB = (() => {
     if(fan.length !== 16) return { ok:false, error: "FAN 16 ዲጂት መሆን አለበት" };
     const db = getDB();
     if(db.students.some(s => s.fan === fan)) return { ok:false, error: "ይህ FAN ቀድሞ ተመዝግቧል" };
+    // Stream (Natural / Social Science) only applies from Grade 11 onward —
+    // ignored for any other grade even if one was passed in.
+    const streamVal = (['11','12'].includes(String(klass).trim()) && ['natural','social'].includes(stream)) ? stream : "";
     const student = { id: uid("std_"), fan, name: name.trim(), class: klass, section,
       gender: gender||"", ecBirth: ecBirth||null, age: ecBirth ? computeAgeFromEC(ecBirth) : null,
-      phone: phone||"",
+      phone: phone||"", stream: streamVal,
       residency: (residency && typeof residency==='object') ? { town: residency.town||"", kebele: residency.kebele||"", sefer: residency.sefer||"" } : { town:"", kebele:"", sefer:"" },
       guardianName: guardianName||"", guardianPhone: guardianPhone||"",
       activated:false, pin:"", createdAt: todayISO() };
@@ -644,6 +647,7 @@ const LIB = (() => {
       guardianName: data.guardianName.trim(), guardianPhone: data.guardianPhone.trim(), guardianEmail: (data.guardianEmail||"").trim(),
       idDoc: data.idDoc || null, // { name, type, size, dataUrl } — National ID face page, kept small (see apply.html upload cap)
       resultDoc: data.resultDoc || null, // Grade 8 Ministry result photo, Grade 9 applicants only
+      streamApplying: ['11','12'].includes(String(data.gradeApplying)) && ['natural','social'].includes(data.streamApplying) ? data.streamApplying : "",
       consentInfo: !!data.consentInfo, consentPhotos: !!data.consentPhotos,
       reviewedAt: null, reviewedBy: "", rejectReason: "", linkedStudentId: ""
     };
@@ -730,6 +734,32 @@ const LIB = (() => {
       });
     });
     return { ok:true, cleared };
+  }
+  // Deletes one reviewed application record entirely (title, documents, everything)
+  // — for a Registrar who wants to declutter History rather than just strip photos.
+  // Pending applications can't be deleted this way (review them first) so an
+  // application in progress is never accidentally lost.
+  function removeApplication(appId){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can do this." };
+    const app = getDB().applications.find(a => a.id === appId);
+    if(!app) return { ok:false, error:"Application not found." };
+    if(app.status === 'pending') return { ok:false, error:"Review this application (Approve or Reject) before deleting it." };
+    mutate(db => { db.applications = db.applications.filter(a => a.id !== appId); });
+    return { ok:true };
+  }
+  // Deletes EVERY reviewed application at once (approved + rejected) — the fast
+  // way to fully clear old History when the applications document is filling up.
+  function clearApplicationHistory(){
+    const actor = currentStaff();
+    if(!actor || actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can do this." };
+    let removed = 0;
+    mutate(db => {
+      const before = db.applications.length;
+      db.applications = db.applications.filter(a => a.status === 'pending');
+      removed = before - db.applications.length;
+    });
+    return { ok:true, removed };
   }
   // Rough size check so the Registrar can see the applications slice is getting
   // full BEFORE it silently hits Firestore's ~1MiB per-document ceiling — same
@@ -847,7 +877,12 @@ const LIB = (() => {
     if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can edit student records." };
     mutate(db => {
       const s = db.students.find(x => x.id === studentId);
-      if(s) Object.assign(s, patch);
+      if(s){
+        Object.assign(s, patch);
+        // Stream only makes sense from Grade 11 onward — clear it if the class
+        // was edited down to something below that.
+        if(!['11','12'].includes(String(s.class).trim())) s.stream = "";
+      }
     });
     return { ok:true };
   }
@@ -1212,6 +1247,23 @@ const LIB = (() => {
   function cancelReservation(id){ if(!isLibrarian()) return; mutate(db => { db.reservations = db.reservations.filter(r => r.id !== id); }); }
 
   function myRequests(studentId){ return getDB().requests.filter(r => r.studentId === studentId); }
+  // Keeps the shared 'activity' document from growing forever: a finished loan
+  // (returned or rejected) older than 30 days is dropped from the live system.
+  // Pending and currently-borrowed records are NEVER touched here, no matter
+  // how old — only requests that are already finished and safely in the past.
+  // Called automatically once per admin session (see admin.html boot) — no
+  // staff action needed, and it's a no-op (no write at all) if there's
+  // nothing old enough to clear yet.
+  function purgeOldLoanHistory(){
+    const cutoff = Date.now() - 30*24*60*60*1000;
+    const isOldAndDone = r => (r.status === 'returned' || r.status === 'rejected') &&
+      (r.returnedAt || r.requestedAt) && new Date(r.returnedAt || r.requestedAt).getTime() < cutoff;
+    const before = getDB().requests.length;
+    const toRemove = getDB().requests.filter(isOldAndDone).length;
+    if(!toRemove) return { removed: 0 };
+    mutate(db => { db.requests = db.requests.filter(r => !isOldAndDone(r)); });
+    return { removed: toRemove };
+  }
   function myReservations(studentId){ return getDB().reservations.filter(r => r.studentId === studentId); }
   function allOverdue(){
     const db = getDB();
@@ -1225,8 +1277,53 @@ const LIB = (() => {
   // (#GRADE9.."#GRADE12 — only students in that class see/get notified about it).
   const AUDIENCES = ["all", "9", "10", "11", "12"];
   const AUDIENCE_LABEL = { all: "#GENERAL", "9": "#GRADE9", "10": "#GRADE10", "11": "#GRADE11", "12": "#GRADE12" };
+  /* ---------------- announcement attachments (free, no Cloud Storage) ----------------
+     A photo is compressed client-side (same trick as the enrollment ID/result
+     photos) and embedded directly — this stays free forever, no Blaze plan or
+     credit card needed, at the cost of a size limit that keeps the shared
+     "feed" document safe. Videos and large files aren't embedded at all —
+     the composer's "paste a Media URL" field is the way to attach those
+     (e.g. a YouTube link or a Google Drive share link), which is also free
+     and has no size limit at all, since the file itself never touches this
+     app's database. Attachments are automatically removed 30 days after
+     posting (see purgeOldAnnouncementMedia) to keep the shared document lean. */
+  const ANNOUNCEMENT_PHOTO_RAW_MAX = 4 * 1024 * 1024; // 4MB raw upload accepted (a normal phone photo)...
+  function compressAnnouncementPhoto(file, cb){
+    if(!file.type.startsWith('image/')){
+      cb({ ok:false, error:"Please choose a photo (JPG/PNG). For a video or a large file, use the \"paste a Media URL\" field instead (e.g. a YouTube or Google Drive link)." });
+      return;
+    }
+    if(file.size > ANNOUNCEMENT_PHOTO_RAW_MAX){
+      cb({ ok:false, error:`That photo is ${(file.size/1024/1024).toFixed(1)}MB — please choose one under 4MB.` });
+      return;
+    }
+    // ...but always compressed down before storing (900px wide, decent
+    // quality) — this is what actually keeps it small, not the 4MB cap.
+    fileToResizedDataURL(file, 900, (dataUrl) => {
+      if(!dataUrl){ cb({ ok:false, error:"Couldn't read that photo — please try another." }); return; }
+      cb({ ok:true, url: dataUrl, name: file.name, type: file.type, size: dataUrl.length });
+    }, 0.7);
+  }
+  // Drops the attachment (not the announcement itself) once it's more than 30
+  // days old — the title/body/history stays, only the embedded photo goes
+  // away. Called automatically once per admin session, same pattern as
+  // purgeOldLoanHistory — a no-op if nothing has aged out yet.
+  function purgeOldAnnouncementMedia(){
+    const cutoff = Date.now() - 30*24*60*60*1000;
+    const isOldMedia = a => a.mediaUrl && a.mediaUploadedAt && new Date(a.mediaUploadedAt).getTime() < cutoff;
+    const toExpire = getDB().announcements.filter(isOldMedia).length;
+    if(!toExpire) return { expired: 0 };
+    mutate(db => {
+      db.announcements.forEach(a => {
+        if(isOldMedia(a)){ a.mediaUrl = ""; a.mediaType = ""; a.mediaName = ""; a.mediaUploadedAt = ""; }
+      });
+    });
+    return { expired: toExpire };
+  }
+
   function postAnnouncement({title, body, mediaUrl, mediaType, mediaName, postedBy, postedByRole, postedById, audience}){
     const rec = { id: uid("an_"), title, body, mediaUrl:mediaUrl||"", mediaType:mediaType||"", mediaName:mediaName||"",
+      mediaUploadedAt: mediaUrl ? todayISO() : "",
       audience: AUDIENCES.includes(audience) ? audience : "all",
       postedBy, postedByRole, postedById: postedById||"", date: todayISO(), views: [] };
     mutate(db => db.announcements.unshift(rec));
@@ -1242,11 +1339,14 @@ const LIB = (() => {
   }
   function updateAnnouncement(id, staffId, {title, body, mediaUrl, mediaType, mediaName, audience}){
     if(!isAnnouncementOwner(id, staffId)) return { ok:false, error:"You can only edit announcements you posted yourself." };
+    const prev = getDB().announcements.find(x => x.id === id);
+    const mediaChanged = prev && prev.mediaUrl !== (mediaUrl||"");
     mutate(db => {
       const a = db.announcements.find(x => x.id === id);
       if(!a) return;
       a.title = title; a.body = body;
       a.mediaUrl = mediaUrl||""; a.mediaType = mediaType||""; a.mediaName = mediaName||"";
+      if(mediaChanged) a.mediaUploadedAt = mediaUrl ? todayISO() : "";
       a.audience = AUDIENCES.includes(audience) ? audience : "all";
       a.editedAt = todayISO();
     });
@@ -1415,16 +1515,17 @@ const LIB = (() => {
     getEnrollmentDeadline, setEnrollmentDeadline, isEnrollmentClosed,
     getSession, setSession, clearSession,
     adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
-    submitApplication, listApplications, approveApplication, rejectApplication, clearApplicationDocs, compactReviewedApplications, applicationsStorageInfo,
+    submitApplication, listApplications, approveApplication, rejectApplication, clearApplicationDocs, compactReviewedApplications, applicationsStorageInfo, removeApplication, clearApplicationHistory,
     syncStudentShardsNow, studentStorageInfo,
     adminSetStudentPin, adminEditStudent, searchStudents, removeStudent,
     autoDistributeSections, studentsToCSV, previewPromotion, promoteStudents, graduateStudents,
     setupFirstAdmin, addStaff, removeStaff, staffChangeOwnPassword, clearDemoData, restoreDemoBooks,
     addBook, editBook, removeBook, searchBooks, bookStats, setCopyStatus, addCopies,
     requestBook, approveRequest, rejectRequest, markReturned, adjustDueDate,
-    reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed,
+    reserveBook, cancelReservation, myRequests, myReservations, allOverdue, allPending, allBorrowed, purgeOldLoanHistory,
     AUDIENCES, AUDIENCE_LABEL,
     postAnnouncement, updateAnnouncement, removeAnnouncement, isAnnouncementOwner, listAnnouncements, listAnnouncementsFor, unreadAnnouncementCount, markAnnouncementViewed,
+    uploadAnnouncementMedia: compressAnnouncementPhoto, purgeOldAnnouncementMedia,
     sendDirectMessage, isDirectMessageOwner, removeDirectMessage, listDirectMessages, listDirectMessagesFor, unreadDirectMessageCount, markDirectMessageRead,
     addComment, commentsFor,
     exportJSON, importJSON, downloadStudentsCSV

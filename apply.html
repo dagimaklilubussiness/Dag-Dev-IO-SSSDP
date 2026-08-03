@@ -43,7 +43,9 @@
     background:linear-gradient(180deg,#fff8e6,#fdeec2); border:1px solid #f0dda0;
     border-radius:12px; padding:10px 14px; margin-bottom:14px;
   }
-  .deadline-box.closed{ background:#fdecec; border-color:#f2c1c6; color:var(--danger); }
+  .deadline-box.closed{ background:#fdecec; border-color:#f2c1c6; color:var(--danger); padding:20px 14px; }
+  .closed-big{ font-size:24px; font-weight:900; letter-spacing:.03em; color:var(--danger); }
+  .closed-sub{ font-size:12.5px; font-weight:600; color:var(--black); margin-top:6px; }
 
   /* ---- Developer credit footer — a bit more presence than the plain line above it,
      since this is the school's public first-impression page. ---- */
@@ -250,9 +252,13 @@ function wireApplyEcFields(){
   document.getElementById('heroTitle').textContent = `Enroll for the ${curYear}/${curYear+1} Academic Year (E.C.)`;
 }
 
-// ---- File upload helper — capped small so it never risks the Firestore doc
-//      limit; images are resized/compressed client-side (free, no server needed). ----
-const RAW_SIZE_CAP = 300 * 1024; // 300KB raw file — after resizing images this leaves comfortable headroom
+// ---- File upload helper for the ID/result photos. Accepts a normal phone
+//      photo up to 4MB, but ALWAYS compresses it down before storing — the
+//      4MB only has to survive the trip from the phone to this tab; what
+//      actually gets saved is a small, resized JPEG (tens of KB), which is
+//      what keeps this safe for Firestore's document-size limit regardless
+//      of how large the original photo was. ----
+const RAW_SIZE_CAP = 4 * 1024 * 1024; // 4MB raw file — a normal phone camera photo
 function wireDocUpload(inputId, labelId, errId, onReady){
   let pending = null;
   const input = document.getElementById(inputId);
@@ -263,8 +269,13 @@ function wireDocUpload(inputId, labelId, errId, onReady){
     errBox.textContent = ''; pending = null; label.classList.remove('has-file'); label.textContent = '📎 Tap to choose a file';
     onReady(null);
     if(!f) return;
+    if(!f.type.startsWith('image/')){
+      errBox.textContent = `Please choose a photo (JPG/PNG) — "${f.name}" isn't an image file.`;
+      e.target.value = '';
+      return;
+    }
     if(f.size > RAW_SIZE_CAP){
-      errBox.textContent = `That file is ${Math.round(f.size/1024)}KB — please choose one under 300KB (or a smaller photo of the document).`;
+      errBox.textContent = `That photo is ${(f.size/1024/1024).toFixed(1)}MB — please choose one under 4MB.`;
       e.target.value = '';
       return;
     }
@@ -272,11 +283,12 @@ function wireDocUpload(inputId, labelId, errId, onReady){
       if(!dataUrl){ errBox.textContent = "Couldn't read that file — please try another."; return; }
       pending = { name: f.name, type: f.type, size: f.size, dataUrl };
       label.classList.add('has-file');
-      label.textContent = `✓ ${f.name} (${Math.round(f.size/1024)}KB)`;
+      label.textContent = `✓ ${f.name} (${Math.round(f.size/1024)}KB → compressed automatically)`;
       onReady(pending);
     };
-    if(f.type.startsWith('image/')) LIB.fileToResizedDataURL(f, 700, finish, 0.6);
-    else LIB.fileToDataURL(f, finish);
+    // Always compressed (700px wide, quality 0.6) regardless of the original
+    // size — this is what actually keeps the stored data small, not the 4MB cap.
+    LIB.fileToResizedDataURL(f, 700, finish, 0.6);
   });
 }
 
@@ -362,7 +374,7 @@ function wireDeadlineCountdown(){
   const tick = () => {
     const msLeft = new Date(deadline).getTime() - Date.now();
     if(msLeft <= 0){
-      box.innerHTML = `⛔ Enrollment closed — the deadline has passed.`;
+      box.innerHTML = `<div class="closed-big">⛔ REGISTRATION IS CLOSED</div><div class="closed-sub">The enrollment deadline has passed. Please contact the school office.</div>`;
       box.classList.add('closed');
       if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Enrollment Closed'; }
       clearInterval(timer);
