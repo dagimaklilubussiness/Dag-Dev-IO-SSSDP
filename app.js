@@ -45,10 +45,10 @@ const LIB = (() => {
      New Year dates (e.g. 1 Meskerem 2018 = 11 Sept 2025). */
   const ETH_EPOCH_JDN = 1723856;
   const ETH_MONTHS = [
-    { n:1, am:"መስከረም" }, { n:2, am:"ጥቅምት" }, { n:3, am:"ኅዳር" }, { n:4, am:"ታኅሳስ" },
-    { n:5, am:"ጥር" }, { n:6, am:"የካቲት" }, { n:7, am:"መጋቢት" }, { n:8, am:"ሚያዝያ" },
-    { n:9, am:"ግንቦት" }, { n:10, am:"ሰኔ" }, { n:11, am:"ሐምሌ" }, { n:12, am:"ነሐሴ" },
-    { n:13, am:"ጳጉሜ" }
+    { n:1, am:"መስከረም", en:"Meskerem" }, { n:2, am:"ጥቅምት", en:"Tikimt" }, { n:3, am:"ኅዳር", en:"Hidar" }, { n:4, am:"ታኅሳስ", en:"Tahsas" },
+    { n:5, am:"ጥር", en:"Tir" }, { n:6, am:"የካቲት", en:"Yekatit" }, { n:7, am:"መጋቢት", en:"Megabit" }, { n:8, am:"ሚያዝያ", en:"Miazia" },
+    { n:9, am:"ግንቦት", en:"Ginbot" }, { n:10, am:"ሰኔ", en:"Sene" }, { n:11, am:"ሐምሌ", en:"Hamle" }, { n:12, am:"ነሐሴ", en:"Nehase" },
+    { n:13, am:"ጳጉሜ", en:"Pagume" }
   ];
   const isEthLeap = (year) => Number(year) % 4 === 3;
   const daysInEthMonth = (year, month) => month <= 12 ? 30 : (isEthLeap(year) ? 6 : 5);
@@ -89,6 +89,15 @@ const LIB = (() => {
     if(!ec || !ec.year) return "—";
     const mo = ETH_MONTHS.find(m => m.n === Number(ec.month));
     return `${ec.day} ${mo?mo.am:ec.month} ${ec.year}`;
+  }
+  // Same date, but using the English month name (or a plain number as a last
+  // resort) instead of Amharic — for contexts that can't render Ethiopic
+  // script, like the PDF export below (jsPDF's built-in fonts are Latin-only;
+  // trying to print Amharic through them is what produced garbled text).
+  function fmtEthDateLatin(ec){
+    if(!ec || !ec.year) return "—";
+    const mo = ETH_MONTHS.find(m => m.n === Number(ec.month));
+    return `${ec.day} ${mo?mo.en:ec.month} ${ec.year} E.C.`;
   }
   function fmtResidency(r){
     if(!r) return "—";
@@ -241,7 +250,7 @@ const LIB = (() => {
     // Student profile photos were removed (storage-safety decision) — strip any
     // leftover photo data from students registered before this change so the
     // space is actually reclaimed the next time this loads and saves.
-    if(db.students){ db.students.forEach(s => { if(s && 'photo' in s) delete s.photo; if(s && s.stream === undefined) s.stream = ""; }); }
+    if(db.students){ db.students.forEach(s => { if(s && 'photo' in s) delete s.photo; if(s && s.stream === undefined) s.stream = ""; if(s && s.batchYear === undefined) s.batchYear = ""; }); }
     return db;
   }
 
@@ -604,7 +613,7 @@ const LIB = (() => {
     const streamVal = (['11','12'].includes(String(klass).trim()) && ['natural','social'].includes(stream)) ? stream : "";
     const student = { id: uid("std_"), fan, name: name.trim(), class: klass, section,
       gender: gender||"", ecBirth: ecBirth||null, age: ecBirth ? computeAgeFromEC(ecBirth) : null,
-      phone: phone||"", stream: streamVal,
+      phone: phone||"", stream: streamVal, batchYear: ethToday().year, // EC year of registration — this student's "batch"
       residency: (residency && typeof residency==='object') ? { town: residency.town||"", kebele: residency.kebele||"", sefer: residency.sefer||"" } : { town:"", kebele:"", sefer:"" },
       guardianName: guardianName||"", guardianPhone: guardianPhone||"",
       activated:false, pin:"", createdAt: todayISO() };
@@ -636,7 +645,7 @@ const LIB = (() => {
     if(!(data.studentPhone||"").trim() && !(data.studentEmail||"").trim()) return { ok:false, error:"Please provide a student phone or email." };
     if(!(data.guardianName||"").trim() || !(data.guardianPhone||"").trim()) return { ok:false, error:"Parent/Guardian name and phone are required." };
     if(!data.consentInfo) return { ok:false, error:"You must consent to Sheno Secondary School collecting this information." };
-    if(String(data.gradeApplying) === '9' && !data.resultDoc) return { ok:false, error:"Grade 8 Ministry result photo is required for Grade 9 applicants." };
+    if(['9','10','11','12'].includes(String(data.gradeApplying)) && !data.resultDoc) return { ok:false, error:"A photo of the previous year's result/report card is required." };
     const ref = genReferenceNumber();
     const record = {
       id: uid("app_"), referenceNumber: ref, status: "pending", submittedAt: todayISO(),
@@ -1510,7 +1519,7 @@ const LIB = (() => {
     CATEGORIES, CATEGORY_LABEL, COPY_STATUS_LABEL, DEFAULT_DUE_DAYS,
     uid, todayISO, addDays, fmtDate, fmtDateTime, isOverdue, daysLeft, escapeHtml, escapeAttr, digitsOnly, stars, fuzzyMatch,
     fileToResizedDataURL, fileToDataURL,
-    ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate, fmtResidency,
+    ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate, fmtEthDateLatin, fmtResidency,
     getDB, mutate, ready, getSettings, updateSettings, applyTheme,
     getEnrollmentDeadline, setEnrollmentDeadline, isEnrollmentClosed,
     getSession, setSession, clearSession,

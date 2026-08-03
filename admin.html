@@ -664,7 +664,7 @@ function renderApplications(area){
       </div>
       <div class="row-actions" style="margin-top:6px;">
         ${a.idDoc ? `<a href="${a.idDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">🪪 View National ID</a>` : `<span class="hint">🪪 No National ID attached</span>`}
-        ${a.resultDoc ? `<a href="${a.resultDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">📄 View Grade 8 Result</a>` : (String(a.gradeApplying)==='9' ? `<span class="hint" style="color:var(--danger);">📄 Grade 8 result missing</span>` : '')}
+        ${a.resultDoc ? `<a href="${a.resultDoc.dataUrl}" target="_blank" rel="noopener" class="btn sm outline">📄 View ${String(a.gradeApplying)==='9'?'Grade 8 Result':"Previous Year's Result"}</a>` : (['9','10','11','12'].includes(String(a.gradeApplying)) ? `<span class="hint" style="color:var(--danger);">📄 Previous year's result missing</span>` : '')}
       </div>
       ${a.status==='rejected' && a.rejectReason ? `<p style="font-size:12px;color:var(--danger);margin-top:8px;">Reason: ${LIB.escapeHtml(a.rejectReason)}</p>` : ''}
       ${a.status==='approved' ? `<p style="font-size:12px;color:var(--ok);margin-top:8px;">✓ Approved by ${LIB.escapeHtml(a.reviewedBy)} on ${LIB.fmtDate(a.reviewedAt)}</p>` : ''}
@@ -674,6 +674,11 @@ function renderApplications(area){
         <button class="btn primary sm" data-approve-app="${a.id}">✓ Approve &amp; Register</button>
       </div>` : `
       <div class="row-actions" style="margin-top:8px;">
+        ${a.status==='approved' && a.linkedStudentId ? (() => {
+          const linked = LIB.getDB().students.find(x=>x.id===a.linkedStudentId);
+          const already = linked && linked.activated;
+          return `<button class="btn sm ${already?'outline':'primary'}" data-pin-app="${a.linkedStudentId}">🔑 ${already?'Reset PIN':'Issue PIN (Activate)'}</button>`;
+        })() : ''}
         ${a.status==='approved' && a.linkedStudentId ? `<button class="btn sm outline" data-pdf-app="${a.linkedStudentId}">⬇ Download Full Record (PDF)</button>` : ''}
         <button class="btn sm outline" data-del-app="${a.id}">🗑 Delete from History</button>
       </div>`}
@@ -700,6 +705,7 @@ function renderApplications(area){
     render('Applications');
   });
   area.querySelectorAll('[data-pdf-app]').forEach(b => b.onclick = () => generateStudentPDF(b.dataset.pdfApp));
+  area.querySelectorAll('[data-pin-app]').forEach(b => b.onclick = () => resetPinModal(b.dataset.pinApp, 'Applications'));
   const clearHistBtn = document.getElementById('clearAppHistBtn');
   if(clearHistBtn) clearHistBtn.onclick = () => {
     if(!confirm(`Delete all ${reviewed.length} reviewed application(s) from History? This cannot be undone — students already approved keep their student record either way.`)) return;
@@ -761,7 +767,7 @@ function approveApplicationModal(appId){
         <div class="field"><label>Family / Guardian Name</label><input id="apvGuardianName" value="${LIB.escapeAttr(app.guardianName||'')}"></div>
         <div class="field"><label>Family Number</label><input id="apvGuardianPhone" value="${LIB.escapeAttr(app.guardianPhone||'')}"></div>
       </div>
-      <div class="field"><label>FAN (16 digit) *</label><input id="apvFan" maxlength="16" inputmode="numeric" placeholder="Assign the school FAN"></div>
+      <div class="field"><label>FAN (16 digit) *</label><input id="apvFan" maxlength="16" inputmode="numeric" placeholder="Copy exactly from the National ID"><p class="hint" style="font-size:11px;margin-top:4px;">FAN is already printed on the student's National ID — copy it exactly, do not invent a number.</p></div>
       <div id="apvErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
         <button class="btn outline" onclick="closeModal()">Cancel</button>
@@ -892,7 +898,7 @@ function addStudentModal(){
         <div class="field"><label>Family / Guardian Name</label><input id="mGuardianName" placeholder="e.g. father/mother/guardian name"></div>
         <div class="field"><label>Family Number</label><input id="mGuardianPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
       </div>
-      <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16"></div>
+      <div class="field"><label>FAN (16 digit)</label><input id="mFan" inputmode="numeric" maxlength="16" placeholder="Copy exactly from the National ID"><p class="hint" style="font-size:11px;margin-top:4px;">FAN is already printed on the student's National ID — copy it exactly, do not invent a number.</p></div>
       <div id="mErr" style="color:var(--danger);font-size:12.5px;"></div>
       <div class="modal-close-row">
         <button class="btn outline" onclick="closeModal()">Cancel</button>
@@ -957,10 +963,9 @@ function distributeSectionsModal(){
 
 // ---------------- Student record PDF export ----------------
 // Builds one PDF per student: their info, registration/application history,
-// attached ID/result photos (if the Registrar hasn't cleared them yet — see
-// Settings > Storage), and a recent borrow-history summary. Downloads
-// automatically named after the student, e.g. "Dagim Aklilu.pdf" — this is
-// what "save in their students name" means: no manual renaming needed.
+// and attached ID/result photos (if the Registrar hasn't cleared them yet —
+// see Settings > Storage). Downloads automatically named
+// "Student Name, BatchYear, Grade N.pdf" — no manual renaming needed.
 function sanitizeFilename(name){
   return (name || 'Student').replace(/[\\/:*?"<>|]/g, '').trim() || 'Student';
 }
@@ -1006,42 +1011,35 @@ async function generateStudentPDF(studentId){
   addLine('Class / Section', `${s.class || '—'}${s.section ? ' / ' + s.section : ''}`);
   if(['11','12'].includes(String(s.class))) addLine('Stream', s.stream === 'natural' ? 'Natural Science' : s.stream === 'social' ? 'Social Science' : 'Not set');
   addLine('Gender', s.gender === 'male' ? 'Male' : s.gender === 'female' ? 'Female' : '—');
-  addLine('Birth Date (EC)', LIB.fmtEthDate(s.ecBirth) + (s.age != null ? ` (age ${s.age})` : ''));
+  // FIX: jsPDF's built-in fonts can't render Amharic (Ethiopic) script at
+  // all — that's exactly what produced the garbled "Birth Date (EC)" text
+  // before. fmtEthDateLatin spells the month in English instead (e.g. "7 Tir
+  // 2014 E.C."), which renders correctly with no font changes needed.
+  addLine('Birth Date (EC)', LIB.fmtEthDateLatin(s.ecBirth) + (s.age != null ? ` (age ${s.age})` : ''));
   addLine('Phone', s.phone);
   addLine('Guardian', `${s.guardianName || '—'} — ${s.guardianPhone || '—'}`);
+  // Note: if Residency/Guardian Name were typed in Amharic script by the
+  // Registrar, those specific fields may still not render correctly below —
+  // the same jsPDF font limitation applies to any Amharic text, not just
+  // dates. Ask if you'd like full Amharic support added (needs an embedded font).
   addLine('Residency', LIB.fmtResidency ? LIB.fmtResidency(s.residency) : [s.residency&&s.residency.town, s.residency&&s.residency.kebele, s.residency&&s.residency.sefer].filter(Boolean).join(', '));
   addLine('Account Status', s.activated ? 'Active' : 'Not activated yet');
   addLine('Registered On', s.createdAt ? LIB.fmtDate(s.createdAt) : '—');
+  addLine('Batch (EC Year)', s.batchYear || '—');
 
   if(app){
     sectionHeader('Registration History (from Application)');
-    addLine('Reference Number', app.referenceNumber);
+    addLine('Applicant Code', app.referenceNumber);
     addLine('Submitted On', LIB.fmtDate(app.submittedAt));
     addLine('Reviewed By', app.reviewedBy);
     addLine('Reviewed On', app.reviewedAt ? LIB.fmtDate(app.reviewedAt) : '—');
-  }
-
-  const reqs = LIB.myRequests(studentId);
-  const cutoff = Date.now() - 30*24*60*60*1000;
-  const recentReqs = reqs.filter(r => new Date(r.requestedAt||0).getTime() >= cutoff);
-  sectionHeader('Recent Borrow History (last 30 days)');
-  if(!recentReqs.length){
-    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-    doc.text('No borrow activity in the last 30 days.', margin, y); y += 18;
-  } else {
-    recentReqs.forEach(r => {
-      const bk = db.books.find(b => b.id === r.bookId);
-      doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-      doc.text(`• ${bk ? bk.title : '—'} — ${r.status}`, margin, y, { maxWidth: pageW - margin*2 });
-      y += 16;
-    });
   }
 
   // Attached photos — only if the Registrar hasn't cleared them from this
   // application yet (see Settings > Storage & Applications).
   const photos = [];
   if(app && app.idDoc && app.idDoc.dataUrl) photos.push({ label: 'National ID', dataUrl: app.idDoc.dataUrl });
-  if(app && app.resultDoc && app.resultDoc.dataUrl) photos.push({ label: 'Grade 8 Result', dataUrl: app.resultDoc.dataUrl });
+  if(app && app.resultDoc && app.resultDoc.dataUrl) photos.push({ label: String(app.gradeApplying)==='9' ? 'Grade 8 Result' : "Previous Year's Result", dataUrl: app.resultDoc.dataUrl });
   if(photos.length){
     doc.addPage();
     y = margin;
@@ -1068,7 +1066,11 @@ async function generateStudentPDF(studentId){
   doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(150,150,150);
   doc.text(`Generated ${new Date().toLocaleString()} — ${settings.schoolName || ''}`, margin, doc.internal.pageSize.getHeight() - 20);
 
-  doc.save(`${sanitizeFilename(s.name)}.pdf`);
+  // Filename: "Student Name, BatchYear, Grade N.pdf" — batch falls back to
+  // the current EC year for older records saved before batchYear existed.
+  const batch = s.batchYear || LIB.ethToday().year;
+  const gradeLabel = s.class ? `Grade ${s.class}` : 'Grade —';
+  doc.save(`${sanitizeFilename(s.name)}, ${batch}, ${sanitizeFilename(gradeLabel)}.pdf`);
 }
 
 function viewStudentModal(id){
@@ -1173,11 +1175,15 @@ function viewStudentModal(id){
   };
 }
 
-function resetPinModal(id){
+function resetPinModal(id, returnView){
+  returnView = returnView || 'Students';
+  const s = LIB.getDB().students.find(x=>x.id===id);
+  const isFirstTime = s && !s.activated;
   openModal(`
     <div class="modal-box">
-      <h3>Reset Student PIN</h3>
-      <div class="field"><label>New 4-digit PIN</label>
+      <h3>${isFirstTime ? '🔑 Issue PIN' : '🔑 Reset PIN'}${s?` — ${LIB.escapeHtml(s.name)}`:''}</h3>
+      ${isFirstTime ? `<p class="hint" style="color:var(--grey);font-size:12.5px;margin-bottom:8px;">This activates the student's account. Give this PIN to the student/guardian in person along with their FAN.</p>` : ''}
+      <div class="field"><label>${isFirstTime?'New':'New'} 4-digit PIN</label>
         <div style="display:flex;gap:8px;">
           <input id="rpPin" class="pin-input" inputmode="numeric" maxlength="4" style="flex:1;">
           <button type="button" class="btn sm outline" id="rpGen">🎲 Generate</button>
@@ -1196,7 +1202,7 @@ function resetPinModal(id){
     const pin = document.getElementById('rpPin').value;
     const res = LIB.adminSetStudentPin(id, pin);
     if(!res.ok){ document.getElementById('rpErr').textContent = res.error; return; }
-    closeModal(); render('Students');
+    closeModal(); render(returnView);
   };
 }
 

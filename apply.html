@@ -103,6 +103,7 @@
 
 <div class="apply-wrap">
 
+  <div id="deadlineBox" class="deadline-box hidden"></div>
   <div id="formMsg"></div>
 
   <form id="applyForm">
@@ -158,13 +159,13 @@
 
     <div class="apply-step"><div class="num">4</div><h2>Supporting Documents</h2></div>
     <div class="card">
-      <label class="field"><span>National ID (Face Page) — image, max 300KB</span></label>
+      <label class="field"><span>National ID (Face Page) — photo, max 4MB</span></label>
       <label class="doc-upload" id="idDocUploadLabel" for="apIdDoc">🪪 Tap to choose a file</label>
       <input type="file" id="apIdDoc" accept="image/*" style="display:none;">
       <div id="idDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
 
       <div id="resultDocBox" style="margin-top:16px;">
-        <label class="field"><span>Grade 8 Ministry Result (required for Grade 9 applicants) — image, max 300KB</span></label>
+        <label class="field"><span id="resultDocLabel">Previous Year's Result / Report Card — photo, max 4MB</span></label>
         <label class="doc-upload" id="resultDocUploadLabel" for="apResultDoc">📄 Tap to choose a file</label>
         <input type="file" id="apResultDoc" accept="image/*" style="display:none;">
         <div id="resultDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
@@ -180,8 +181,6 @@
       <input type="checkbox" id="apConsentPhotos">
       <label for="apConsentPhotos">I also consent to the student appearing in official school photos or publications (optional — you can decline and still register).</label>
     </div>
-
-    <div id="deadlineBox" class="deadline-box hidden"></div>
 
     <div id="submitErr" style="color:var(--danger);font-size:13px;margin-bottom:10px;"></div>
     <button class="btn primary block" type="submit" id="submitBtn">Submit Application</button>
@@ -305,7 +304,18 @@ function initApplyPage(){
   wireDocUpload('apResultDoc', 'resultDocUploadLabel', 'resultDocErr', (v) => pendingResultDoc = v);
   const gradeSel = document.getElementById('apGrade');
   const resultBox = document.getElementById('resultDocBox');
-  const refreshResultBox = () => { resultBox.classList.toggle('hidden', gradeSel.value !== '9'); };
+  const resultLabel = document.getElementById('resultDocLabel');
+  // Grade 9 needs the Ministry's Grade 8 result specifically; Grade 10-12
+  // applicants (new admissions/transfers) need their most recent report card
+  // instead — different wording, same requirement: proof of the previous grade.
+  const REQUIRES_PREV_RESULT = ['9','10','11','12'];
+  const refreshResultBox = () => {
+    const g = gradeSel.value;
+    resultBox.classList.toggle('hidden', !REQUIRES_PREV_RESULT.includes(g));
+    if(resultLabel) resultLabel.textContent = g === '9'
+      ? "Grade 8 Ministry Result — photo, max 4MB"
+      : "Previous Year's Result / Report Card — photo, max 4MB";
+  };
   gradeSel.onchange = refreshResultBox;
   refreshResultBox();
 
@@ -322,7 +332,12 @@ function initApplyPage(){
     const ecBirth = { day: Number(document.getElementById('apEcDay').value), month: Number(document.getElementById('apEcMonth').value), year: Number(document.getElementById('apEcYear').value) };
     if(!ecBirth.day || !ecBirth.month || !ecBirth.year){ submitErr.textContent = 'Please complete the date of birth.'; return; }
     const gradeApplying = document.getElementById('apGrade').value;
-    if(gradeApplying === '9' && !pendingResultDoc){ submitErr.textContent = 'Please attach a photo of the Grade 8 Ministry result for Grade 9 applicants.'; return; }
+    if(['9','10','11','12'].includes(gradeApplying) && !pendingResultDoc){
+      submitErr.textContent = gradeApplying === '9'
+        ? 'Please attach a photo of the Grade 8 Ministry result.'
+        : "Please attach a photo of the student's previous year's result/report card.";
+      return;
+    }
 
     submitBtn.disabled = true;
     const originalLabel = submitBtn.textContent;
@@ -368,18 +383,23 @@ function initApplyPage(){
 
 function wireDeadlineCountdown(){
   const box = document.getElementById('deadlineBox');
+  const form = document.getElementById('applyForm');
   const deadline = LIB.getEnrollmentDeadline(); // ISO string set by the Registrar in admin.html Settings, or '' if none set
-  if(!deadline){ box.classList.add('hidden'); return; }
-  const submitBtn = document.getElementById('submitBtn');
+  if(!deadline){ box.classList.add('hidden'); return; } // no deadline set — form stays visible, no countdown shown
   const tick = () => {
     const msLeft = new Date(deadline).getTime() - Date.now();
     if(msLeft <= 0){
+      // Closed: hide the whole form immediately — nobody should be able to
+      // start filling it in only to find out at the end that it's too late.
+      form.classList.add('hidden');
+      box.classList.remove('hidden');
       box.innerHTML = `<div class="closed-big">⛔ REGISTRATION IS CLOSED</div><div class="closed-sub">The enrollment deadline has passed. Please contact the school office.</div>`;
       box.classList.add('closed');
-      if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'Enrollment Closed'; }
       clearInterval(timer);
       return;
     }
+    form.classList.remove('hidden');
+    box.classList.remove('hidden', 'closed');
     const d = Math.floor(msLeft / 86400000);
     const h = Math.floor((msLeft % 86400000) / 3600000);
     const m = Math.floor((msLeft % 3600000) / 60000);
