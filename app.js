@@ -75,6 +75,48 @@ const LIB = (() => {
     const now = new Date();
     return jdnToEthiopic(gregorianToJDN(now.getFullYear(), now.getMonth()+1, now.getDate()));
   }
+  // Inverse of gregorianToJDN — needed to turn an Ethiopian-calendar date
+  // (e.g. "30 Sene, end of the school year") into a real Gregorian ISO date
+  // so it can be stored/compared as a normal dueDate like everything else.
+  function jdnToGregorian(jdn){
+    const a = jdn + 32044;
+    const b = Math.floor((4*a+3)/146097);
+    const c = a - Math.floor((146097*b)/4);
+    const d = Math.floor((4*c+3)/1461);
+    const e = c - Math.floor((1461*d)/4);
+    const m = Math.floor((5*e+2)/153);
+    const day = e - Math.floor((153*m+2)/5) + 1;
+    const month = m + 3 - 12*Math.floor(m/10);
+    const year = 100*b + d - 4800 + Math.floor(m/10);
+    return { year, month, day };
+  }
+  function ecToISO(ec){
+    const g = jdnToGregorian(ethiopicToJDN(ec.year, ec.month, ec.day));
+    return new Date(Date.UTC(g.year, g.month-1, g.day, 12, 0, 0)).toISOString();
+  }
+  // The date annual/textbook loans fall due. Defaults to 30 Sene (the 10th
+  // Ethiopian month — around early July, a typical Ethiopian school year end)
+  // of whichever school year is currently "open": if today is already past
+  // that date this Ethiopian year (e.g. it's Hamle/Nehase/Pagume, between
+  // school years), it rolls forward to next year's 30 Sene instead of
+  // quietly handing out an already-past due date.
+  function defaultAcademicYearEndEC(){
+    const t = ethToday();
+    const candidate = { year: t.year, month: 10, day: 30 };
+    const past = (t.month > 10) || (t.month === 10 && t.day > 30);
+    if(past) candidate.year += 1;
+    return candidate;
+  }
+  function getAcademicYearEnd(){
+    const s = getSettings();
+    return (s.academicYearEnd && s.academicYearEnd.year) ? s.academicYearEnd : defaultAcademicYearEndEC();
+  }
+  function setAcademicYearEnd(ec){
+    if(!ec || !ec.year || !ec.month || !ec.day) return { ok:false, error:"Please pick a complete date." };
+    mutate(db => { db.settings.academicYearEnd = { year:Number(ec.year), month:Number(ec.month), day:Number(ec.day) }; });
+    return { ok:true };
+  }
+  function academicYearEndISO(){ return ecToISO(getAcademicYearEnd()); }
   // Age in whole years, computed entirely within the Ethiopian calendar (no
   // need to convert the birth date to Gregorian — "today" is the only side
   // that needs converting, via ethToday() above).
@@ -944,14 +986,28 @@ const LIB = (() => {
   // score (or have none on file) are shuffled first, so the order within a
   // score tier — and the placement of students with no score — is still random,
   // not alphabetical or by registration order.
+  //
+  // Grade 11/12 only: a section is a single homeroom, and Natural/Social
+  // Science students take different subjects — so they can never share a
+  // section. opts.stream ('natural' | 'social') is REQUIRED for these grades;
+  // only students of that stream are considered, and the Registrar runs this
+  // once per stream (typically into a different set of section letters each
+  // time, e.g. Natural → A,B and Social → C,D) so the two streams never end
+  // up mixed into the same section by the shuffle.
   function autoDistributeSections(grade, sectionLetters, opts){
     const actor = currentStaff();
     if(actor && actor.role !== 'registrar') return { ok:false, error:"Only the Registrar can distribute students to sections." };
     sectionLetters = (sectionLetters||[]).map(s=>String(s).trim()).filter(Boolean);
     if(!sectionLetters.length) return { ok:false, error:"Pick at least one section." };
     const onlyUnassigned = !!(opts && opts.onlyUnassigned);
+    const streamFilter = (opts && opts.stream) || "";
     const db = getDB();
+    const isStreamGrade = ['11','12'].includes(String(grade).trim());
+    if(isStreamGrade && !['natural','social'].includes(streamFilter)){
+      return { ok:false, error:"Grade 11/12 students are split into Natural and Social Science — pick a stream first so the two aren't mixed into the same sections." };
+    }
     let pool = db.students.filter(s => String(s.class||'').trim() === String(grade).trim());
+    if(isStreamGrade) pool = pool.filter(s => String(s.stream||'') === streamFilter);
     if(onlyUnassigned) pool = pool.filter(s => !String(s.section||'').trim());
     if(!pool.length) return { ok:false, error:"No matching students to distribute." };
     // Fisher–Yates shuffle first (randomizes tie order / no-score order), THEN
@@ -1192,6 +1248,7 @@ const LIB = (() => {
     if(!isLibrarian()) return { ok:false, error:"Only Library Staff can add books." };
     const rec = { id: uid("bk_"), title:book.title, author:book.author, category:book.category,
       quality:Number(book.quality)||3, condition:book.condition||"", coverUrl:book.coverUrl||"",
+      price: Number(book.price)||0, annualLoan: !!book.annualLoan,
       copies: makeCopies(book.totalCopies), addedAt: todayISO() };
     mutate(db => db.books.push(rec));
     return rec;
@@ -1276,10 +1333,16 @@ const LIB = (() => {
     const db = getDB();
     const r = db.requests.find(x => x.id === requestId);
     if(!r || r.status !== "pending") return;
-    const finalDue = addDays(todayISO(), dueDays || db.settings.dueDays || DEFAULT_DUE_DAYS);
+    // Annual-loan books (exercise/text books issued for the whole school
+    // year) get the academic year-end date as their due date instead of the
+    // usual short-loan window — see academicYearEndISO() / Settings.
+    const book = db.books.find(b => b.id === r.bookId);
+    const finalDue = (book && book.annualLoan)
+      ? academicYearEndISO()
+      : addDays(todayISO(), dueDays || db.settings.dueDays || DEFAULT_DUE_DAYS);
     mutate(db => {
       const x = db.requests.find(x => x.id === requestId);
-      if(x){ x.status = "borrowed"; x.approvedAt = todayISO(); x.dueDate = finalDue; x.approvedBy = staffName; }
+      if(x){ x.status = "borrowed"; x.approvedAt = todayISO(); x.dueDate = finalDue; x.approvedBy = staffName; x.annualLoan = !!(book && book.annualLoan); }
     });
   }
   function rejectRequest(requestId){
@@ -1308,6 +1371,50 @@ const LIB = (() => {
       if(c) c.status = damaged ? 'damaged' : 'available';
     });
   }
+  // A book marked lost is deliberately NOT "returned" — the loan record stays
+  // attached to the student permanently (visible in their history even after
+  // grade promotion or across years) as evidence of what's owed, rather than
+  // disappearing the way a normal return does.
+  function markLost(requestId){
+    if(!isLibrarian()) return;
+    const db = getDB();
+    const r = db.requests.find(x => x.id === requestId);
+    if(!r || r.status !== "borrowed") return;
+    mutate(db => {
+      const x = db.requests.find(x => x.id === requestId);
+      if(x) x.status = "lost";
+      const b = db.books.find(x => x.id === r.bookId);
+      const c = b && b.copies.find(x => x.id === r.copyId);
+      if(c) c.status = 'lost';
+    });
+  }
+  // Direct issue for annual/textbook loans — deliberately skips the normal
+  // request→approve pipeline (no student-initiated request exists for these;
+  // Library Staff hand the physical book over and record it on the spot).
+  function issueAnnualLoan(bookId, studentId){
+    if(!isLibrarian()) return { ok:false, error:"Only Library Staff can do this." };
+    const db = getDB();
+    const book = db.books.find(b => b.id === bookId);
+    if(!book) return { ok:false, error:"Book not found." };
+    if(!book.annualLoan) return { ok:false, error:"This book isn't marked as an Annual Loan title." };
+    const student = db.students.find(s => s.id === studentId);
+    if(!student) return { ok:false, error:"Student not found." };
+    const already = db.requests.some(r => r.studentId===studentId && r.bookId===bookId && r.status==='borrowed');
+    if(already) return { ok:false, error:`${student.name} already has a copy of this book checked out.` };
+    const copy = book.copies.find(c => c.status === 'available');
+    if(!copy) return { ok:false, error:"No available copies to issue." };
+    const actor = currentStaff();
+    const rec = { id: uid("req_"), studentId, bookId, copyId: copy.id, status: "borrowed",
+      requestedAt: todayISO(), approvedAt: todayISO(), dueDate: academicYearEndISO(),
+      approvedBy: actor ? actor.name : "", annualLoan: true, direct: true };
+    mutate(db => {
+      db.requests.push(rec);
+      const b = db.books.find(x => x.id === bookId);
+      const c = b && b.copies.find(x => x.id === copy.id);
+      if(c) c.status = 'borrowed';
+    });
+    return { ok:true, request: rec };
+  }
   function adjustDueDate(requestId, newDueIso){
     if(!isLibrarian()) return;
     mutate(db => {
@@ -1323,6 +1430,67 @@ const LIB = (() => {
     return { ok:true, reservation: rec };
   }
   function cancelReservation(id){ if(!isLibrarian()) return; mutate(db => { db.reservations = db.reservations.filter(r => r.id !== id); }); }
+
+  /* ---------------- Annual (textbook) loans — year-end handling ----------------
+     Exercise/text books are issued for the whole school year rather than a
+     couple of weeks (see approveRequest). At year end, Library Staff need a
+     portable record of exactly who still has what — and its ETB replacement
+     value — BEFORE anything is reset, mirroring the same "export first"
+     safety pattern used for Grade 12 graduation. */
+  function annualLoanSummary(){
+    const db = getDB();
+    const rows = [];
+    let outstandingValue = 0, outstandingCount = 0;
+    db.books.filter(b => b.annualLoan).forEach(book => {
+      db.requests.filter(r => r.bookId === book.id && r.status === 'borrowed').forEach(r => {
+        const s = db.students.find(x => x.id === r.studentId);
+        rows.push({ student: s ? s.name : '(removed student)', fan: s ? s.fan : '', klass: s ? s.class : '',
+          book: book.title, price: book.price||0, dueDate: r.dueDate, requestId: r.id });
+        outstandingValue += Number(book.price)||0;
+        outstandingCount++;
+      });
+    });
+    return { rows, outstandingValue, outstandingCount };
+  }
+  function textbookYearEndCSV(){
+    const { rows } = annualLoanSummary();
+    const cols = ["Student","FAN","Class","Book","Price (ETB)","Due Date"];
+    const csvEscape = v => { v = (v==null?"":String(v)); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+    const asText = v => { v = (v==null?"":String(v)); return v ? `="${v.replace(/"/g,'""')}"` : ""; };
+    const body = rows.map(r => [r.student, asText(r.fan), r.klass, r.book, r.price, fmtDate(r.dueDate)]
+      .map((v,i) => i===1 ? v : csvEscape(v)).join(","));
+    return [cols.join(","), ...body].join("\r\n");
+  }
+  function downloadTextbookReportCSV(filenameBase){
+    const csv = textbookYearEndCSV();
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${filenameBase||'textbook-year-end'}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+  // Marks every currently-borrowed copy of every annual-loan book as
+  // available again for the new year. Damaged/lost copies are deliberately
+  // left untouched — those still need a real restock/replacement decision,
+  // not a silent reset — which is also why this refuses to run at all unless
+  // the CSV above has already been generated in this same call chain
+  // (enforced in the UI, same pattern as Graduate Grade 12).
+  function resetAnnualLoans(){
+    if(!isLibrarian()) return { ok:false, error:"Only Library Staff can do this." };
+    const db = getDB();
+    let count = 0;
+    mutate(db => {
+      db.books.filter(b => b.annualLoan).forEach(book => {
+        db.requests.filter(r => r.bookId === book.id && r.status === 'borrowed').forEach(r => {
+          r.status = 'returned'; r.returnedAt = todayISO(); r.note = 'Year-end automatic return';
+          const copy = book.copies.find(c => c.id === r.copyId);
+          if(copy && copy.status === 'borrowed'){ copy.status = 'available'; count++; }
+        });
+      });
+    });
+    return { ok:true, count };
+  }
 
   function myRequests(studentId){ return getDB().requests.filter(r => r.studentId === studentId); }
   // Keeps the shared 'activity' document from growing forever: a finished loan
@@ -1589,6 +1757,8 @@ const LIB = (() => {
     uid, todayISO, addDays, fmtDate, fmtDateTime, isOverdue, daysLeft, escapeHtml, escapeAttr, digitsOnly, stars, fuzzyMatch,
     fileToResizedDataURL, fileToDataURL,
     ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate, fmtEthDateLatin, fmtResidency,
+    jdnToGregorian, getAcademicYearEnd, setAcademicYearEnd, academicYearEndISO,
+    annualLoanSummary, textbookYearEndCSV, downloadTextbookReportCSV, resetAnnualLoans, issueAnnualLoan, markLost,
     getDB, mutate, ready, getSettings, updateSettings, applyTheme,
     getEnrollmentDeadline, setEnrollmentDeadline, isEnrollmentClosed,
     getSession, setSession, clearSession,

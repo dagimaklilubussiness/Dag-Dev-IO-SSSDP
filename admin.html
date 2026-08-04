@@ -974,6 +974,14 @@ function distributeSectionsModal(){
       <div class="field"><label>Grade</label>
         <select id="dsGrade">${grades.length ? grades.map(g=>`<option value="${LIB.escapeAttr(g)}">Class ${LIB.escapeHtml(g)}</option>`).join('') : `<option value="">— No students yet —</option>`}</select>
       </div>
+      <div class="field hidden" id="dsStreamBox"><label>Stream</label>
+        <select id="dsStream">
+          <option value="">— Select stream —</option>
+          <option value="natural">Natural Science</option>
+          <option value="social">Social Science</option>
+        </select>
+        <p class="hint" style="font-size:11px;margin-top:4px;">Grade 11/12 sections are single-stream — run this once per stream (e.g. Natural into A, B, then Social into C, D) so the two never end up mixed in one section.</p>
+      </div>
       <div class="field"><label>Sections (comma-separated)</label><input id="dsSections" placeholder="e.g. A, B, C" value="A, B"></div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:10px 0;">
         <input type="checkbox" id="dsOnlyUnassigned" checked> Only students who don't have a section yet
@@ -984,11 +992,17 @@ function distributeSectionsModal(){
         <button class="btn primary" id="dsRun">Distribute</button>
       </div>
     </div>`);
+  const gradeSel = document.getElementById('dsGrade');
+  const streamBox = document.getElementById('dsStreamBox');
+  const refreshStreamBox = () => streamBox.classList.toggle('hidden', !['11','12'].includes(gradeSel.value));
+  gradeSel.onchange = refreshStreamBox;
+  refreshStreamBox();
   document.getElementById('dsRun').onclick = () => {
     const grade = document.getElementById('dsGrade').value;
     const sections = document.getElementById('dsSections').value.split(',').map(s=>s.trim()).filter(Boolean);
     const onlyUnassigned = document.getElementById('dsOnlyUnassigned').checked;
-    const res = LIB.autoDistributeSections(grade, sections, { onlyUnassigned });
+    const stream = document.getElementById('dsStream').value;
+    const res = LIB.autoDistributeSections(grade, sections, { onlyUnassigned, stream });
     if(!res.ok){ document.getElementById('dsErr').textContent = res.error; return; }
     closeModal(); render('Students');
     alert(`✓ ${res.count} students distributed across ${res.sections.join(', ')}.`);
@@ -1251,10 +1265,12 @@ function renderBooks(area){
     <div class="search-bar">
       <input id="bkSearch" placeholder="Search title, author, or category..." aria-label="Search books">
       <select id="bkCatFilter" aria-label="Filter by category"><option value="all">All categories</option>${LIB.CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+      <button class="btn outline" id="textbookYearEndBtn">🎒 Textbook Year-End</button>
       <button class="btn primary" id="addBkBtn">+ Add Book</button>
     </div>
     <div class="grid cols-3" id="bkGrid"></div>
   `;
+  document.getElementById('textbookYearEndBtn').onclick = () => textbookYearEndModal();
   const draw = () => {
     const q = document.getElementById('bkSearch').value;
     const cat = document.getElementById('bkCatFilter').value;
@@ -1266,8 +1282,8 @@ function renderBooks(area){
         <div style="display:flex;gap:10px;">
           ${b.coverUrl?`<img class="cover-thumb" src="${LIB.escapeAttr(b.coverUrl)}" alt="">`:`<div class="cover-thumb" style="display:flex;align-items:center;justify-content:center;">📕</div>`}
           <div style="flex:1;min-width:0;">
-            <h4 style="margin-bottom:2px;">${LIB.escapeHtml(b.title)}</h4>
-            <div style="font-size:12px;color:var(--grey);margin-bottom:4px;">${LIB.escapeHtml(b.author||'')} • ${b.category}</div>
+            <h4 style="margin-bottom:2px;">${LIB.escapeHtml(b.title)} ${b.annualLoan?'<span class="badge warn" style="font-size:10px;">📅 Annual</span>':''}</h4>
+            <div style="font-size:12px;color:var(--grey);margin-bottom:4px;">${LIB.escapeHtml(b.author||'')} • ${b.category}${b.price?` • ${b.price} ETB/copy`:''}</div>
           </div>
         </div>
         <div style="font-size:12px;margin:8px 0 2px;">Available: ${stats.available}/${stats.total} &nbsp;•&nbsp; Borrowed: ${stats.borrowed} &nbsp;•&nbsp; Damaged: ${stats.damaged} &nbsp;•&nbsp; Lost: ${stats.lost}</div>
@@ -1275,11 +1291,13 @@ function renderBooks(area){
         <div class="row-actions">
           <button class="btn sm outline" data-edit-bk="${b.id}">Edit / Manage Copies</button>
           <button class="btn sm danger" data-del-bk="${b.id}">Delete</button>
+          ${b.annualLoan?`<button class="btn sm primary" data-issue-bk="${b.id}">🎒 Issue to Student</button>`:''}
         </div>
       </div>`;
     }).join('') || `<div class="empty"><span class="ic">📭</span>No books</div>`;
     document.querySelectorAll('[data-edit-bk]').forEach(b=>b.onclick=()=>bookModal(b.dataset.editBk));
     document.querySelectorAll('[data-del-bk]').forEach(b=>b.onclick=()=>{ if(confirm('Delete this book?')){ LIB.removeBook(b.dataset.delBk); draw(); } });
+    document.querySelectorAll('[data-issue-bk]').forEach(b=>b.onclick=()=>issueAnnualLoanModal(b.dataset.issueBk));
   };
   document.getElementById('bkSearch').oninput = draw;
   document.getElementById('bkCatFilter').onchange = draw;
@@ -1304,8 +1322,15 @@ function bookModal(id){
       <div class="field"><label>Category</label>
         <select id="bCat">${LIB.CATEGORIES.map(c=>`<option value="${c}" ${b&&b.category===c?'selected':''}>${c}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>Total Copies</label><input id="bTotal" type="number" min="0" value="${b?stats.total:1}"></div>
+      <div class="grid cols-2">
+        <div class="field"><label>Total Copies</label><input id="bTotal" type="number" min="0" value="${b?stats.total:1}"></div>
+        <div class="field"><label>Price per copy (ETB)</label><input id="bPrice" type="number" min="0" step="0.01" value="${b&&b.price?b.price:''}" placeholder="e.g. 150"></div>
+      </div>
       <div class="field"><label>Condition notes</label><input id="bCond" value="${b?LIB.escapeAttr(b.condition||''):''}" placeholder="e.g. New, minor wear"></div>
+      <label class="field" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="bAnnual" style="width:auto;" ${b&&b.annualLoan?'checked':''}>
+        <span>📅 Annual Loan — issued for the whole school year (e.g. exercise/text books), due back at year end instead of the usual short loan window</span>
+      </label>
       ${b ? `<div class="field"><label>Per-copy status (click to cycle)</label>
         <div class="copy-chip-row" id="copyChipRow">${b.copies.map((c,i)=>`<button type="button" class="copy-chip ${c.status}" data-copy="${c.id}">#${i+1} ${LIB.COPY_STATUS_LABEL[c.status]}</button>`).join('')}</div>
       </div>` : ''}
@@ -1350,7 +1375,9 @@ function bookModal(id){
       category: document.getElementById('bCat').value,
       condition: document.getElementById('bCond').value,
       coverUrl: pendingCover,
-      totalCopies: document.getElementById('bTotal').value
+      totalCopies: document.getElementById('bTotal').value,
+      price: Number(document.getElementById('bPrice').value) || 0,
+      annualLoan: document.getElementById('bAnnual').checked
     };
     if(b) LIB.editBook(b.id, payload); else {
       LIB.addBook(payload);
@@ -1358,6 +1385,106 @@ function bookModal(id){
       LIB.postAnnouncement({ title:'📗 አዲስ መጽሐፍ ደርሷል', body:`"${newTitle}" አሁን በቤተ-መጻሕፍት ውስጥ ይገኛል!`,
         mediaUrl:'', mediaType:'', postedBy: CURRENT.name, postedByRole: CURRENT.role });
     }
+    closeModal(); render('Books');
+  };
+}
+
+// Direct hand-over of an annual/textbook loan — no request/approval step,
+// since the student never submits a digital request for these; Library Staff
+// record it the moment the physical book is handed over.
+function issueAnnualLoanModal(bookId){
+  const book = LIB.getDB().books.find(b => b.id === bookId);
+  if(!book) return;
+  let selectedId = '';
+  openModal(`
+    <div class="modal-box">
+      <h3>🎒 Issue "${LIB.escapeHtml(book.title)}"</h3>
+      <p class="hint" style="color:var(--grey);font-size:12.5px;">Find the student who is physically receiving the book. This records it as borrowed for the school year, due back ${LIB.escapeHtml(LIB.fmtEthDate(LIB.getAcademicYearEnd()))} (EC).</p>
+      <div class="field"><label>Student (search by name or FAN)</label>
+        <input id="ialStuSearch" placeholder="Start typing a student's name..." autocomplete="off">
+        <div id="ialStuResults" class="dm-stu-results"></div>
+      </div>
+      <div id="ialSelectedBox"></div>
+      <div id="ialErr" style="color:var(--danger);font-size:12.5px;"></div>
+      <div class="modal-close-row">
+        <button class="btn outline" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" id="ialIssueBtn">Issue Book</button>
+      </div>
+    </div>`);
+  const db = LIB.getDB();
+  const renderSelected = () => {
+    const box = document.getElementById('ialSelectedBox');
+    const s = selectedId && db.students.find(x=>x.id===selectedId);
+    box.innerHTML = s
+      ? `<div class="badge ok" style="margin-bottom:10px;">Issuing to: ${LIB.escapeHtml(s.name)} — Class ${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''} <button type="button" id="ialClearStu" style="margin-inline-start:8px;">✕</button></div>`
+      : '';
+    const clearBtn = document.getElementById('ialClearStu');
+    if(clearBtn) clearBtn.onclick = () => { selectedId=''; document.getElementById('ialStuSearch').value=''; renderSelected(); };
+  };
+  document.getElementById('ialStuSearch').oninput = (e) => {
+    const q = e.target.value.trim();
+    const box = document.getElementById('ialStuResults');
+    if(!q){ box.innerHTML=''; box.classList.remove('open'); return; }
+    const results = LIB.searchStudents(q).slice(0,8);
+    box.innerHTML = results.length ? results.map(s=>`<div class="dm-stu-opt" data-pick="${s.id}"><b>${LIB.escapeHtml(s.name)}</b> — Class ${LIB.escapeHtml(String(s.class||''))}${s.section?('/'+LIB.escapeHtml(String(s.section))):''}</div>`).join('')
+      : `<div class="dm-stu-opt" style="color:var(--grey);">No student found</div>`;
+    box.classList.add('open');
+    document.querySelectorAll('[data-pick]').forEach(opt => {
+      opt.onclick = () => {
+        selectedId = opt.dataset.pick;
+        document.getElementById('ialStuSearch').value = '';
+        box.innerHTML=''; box.classList.remove('open');
+        renderSelected();
+      };
+    });
+  };
+  document.getElementById('ialIssueBtn').onclick = () => {
+    const errBox = document.getElementById('ialErr');
+    if(!selectedId){ errBox.textContent = 'Please pick a student first.'; return; }
+    const res = LIB.issueAnnualLoan(bookId, selectedId);
+    if(!res.ok){ errBox.textContent = res.error; return; }
+    closeModal(); render('Books');
+  };
+}
+
+
+// replacement value, forces a CSV download before allowing anything to be
+// reset — same "export first, then act" safety pattern as Graduate Grade 12.
+function textbookYearEndModal(){
+  const summary = LIB.annualLoanSummary();
+  let csvDownloaded = false;
+  const rowsHtml = summary.rows.length ? `
+    <div class="table-wrap card" style="max-height:240px;overflow:auto;margin:10px 0;">
+      <table><thead><tr><th>Student</th><th>Class</th><th>Book</th><th>Price</th><th>Due</th></tr></thead><tbody>
+        ${summary.rows.map(r=>`<tr><td>${LIB.escapeHtml(r.student)}</td><td>${LIB.escapeHtml(String(r.klass||''))}</td><td>${LIB.escapeHtml(r.book)}</td><td>${r.price} ETB</td><td>${LIB.fmtDate(r.dueDate)}</td></tr>`).join('')}
+      </tbody></table>
+    </div>` : `<div class="empty" style="margin:10px 0;">No annual-loan copies are currently borrowed.</div>`;
+  openModal(`
+    <div class="modal-box">
+      <h3>🎒 Textbook Year-End</h3>
+      <p class="hint" style="color:var(--grey);font-size:12.5px;">For books marked "📅 Annual Loan" only — download the report first, then reset for the new year. Damaged/lost copies are never touched here; handle those individually in Edit / Manage Copies.</p>
+      <div class="grid cols-2" style="font-size:13px;margin:10px 0;">
+        <div>Still outstanding: <b>${summary.outstandingCount}</b> ${summary.outstandingCount===1?'copy':'copies'}</div>
+        <div>Total value at risk: <b>${summary.outstandingValue.toLocaleString()} ETB</b></div>
+      </div>
+      ${rowsHtml}
+      <div id="tbyeMsg" style="font-size:12.5px;margin-bottom:6px;"></div>
+      <div class="modal-close-row" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn outline" onclick="closeModal()">Close</button>
+        <button class="btn primary" id="tbyeDownloadBtn">⬇ Download Report (.csv)</button>
+        <button class="btn danger" id="tbyeResetBtn" ${summary.rows.length?'':'disabled'}>🔄 Reset Annual Loans for New Year</button>
+      </div>
+    </div>`);
+  document.getElementById('tbyeDownloadBtn').onclick = () => {
+    LIB.downloadTextbookReportCSV(`textbook-year-end-${new Date().toISOString().slice(0,10)}`);
+    csvDownloaded = true;
+    document.getElementById('tbyeMsg').innerHTML = '<span style="color:var(--ok);">✓ Report downloaded — you can now reset if ready.</span>';
+  };
+  document.getElementById('tbyeResetBtn').onclick = () => {
+    const m = document.getElementById('tbyeMsg');
+    if(!csvDownloaded){ m.innerHTML = '<span style="color:var(--danger);">Please download the report first — click the button above.</span>'; return; }
+    if(!confirm(`This marks all ${summary.outstandingCount} currently-borrowed annual-loan copies as available again for the new year. This can't be undone. Continue?`)) return;
+    const res = LIB.resetAnnualLoans();
     closeModal(); render('Books');
   };
 }
@@ -1394,17 +1521,19 @@ function renderRequests(area){
       ${borrowed.length ? borrowed.map(r=>{
         const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
         const overdue = LIB.isOverdue(r.dueDate);
-        return `<tr class="${overdue?'overdue-row':''}"><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td>
+        return `<tr class="${overdue?'overdue-row':''}"><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}${r.annualLoan?' <span class="badge warn" style="font-size:9.5px;">📅 Annual</span>':''}</td>
           <td>${LIB.fmtDate(r.dueDate)}</td>
           <td class="row-actions">
             <button class="btn sm outline" data-adjust="${r.id}">Adjust Due</button>
             <button class="btn sm primary" data-return="${r.id}">Mark Returned</button>
             <button class="btn sm danger" data-return-dmg="${r.id}">Returned Damaged</button>
+            <button class="btn sm danger" data-lost="${r.id}">Mark Lost</button>
           </td></tr>`;
       }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No active loans</td></tr>`}
       </tbody></table></div>`;
     document.querySelectorAll('[data-return]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.return, false); render('Requests'); });
     document.querySelectorAll('[data-return-dmg]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.returnDmg, true); render('Requests'); });
+    document.querySelectorAll('[data-lost]').forEach(b=>b.onclick=()=>{ if(confirm('Mark this copy as lost? It will stay in the student\'s history as a lost book rather than being marked returned.')){ LIB.markLost(b.dataset.lost); render('Requests'); } });
     document.querySelectorAll('[data-adjust]').forEach(b=>b.onclick=()=>adjustDueModal(b.dataset.adjust));
   };
   document.querySelectorAll('.tab-btn').forEach(btn=>{
