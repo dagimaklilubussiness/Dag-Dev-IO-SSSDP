@@ -1495,11 +1495,13 @@ function renderRequests(area){
   const db = LIB.getDB();
   const pending = LIB.allPending();
   const borrowed = LIB.allBorrowed();
+  const lost = db.requests.filter(r => r.status === 'lost');
   area.innerHTML = `
     <h2>📥 Requests & Loans</h2>
     <div class="tabs">
       <button class="tab-btn active" data-t="pending">Pending Approval (${pending.length})</button>
       <button class="tab-btn" data-t="borrowed">Currently Borrowed (${borrowed.length})</button>
+      <button class="tab-btn" data-t="lost">Lost — Awaiting Payment (${lost.length})</button>
     </div>
     <div id="reqPanel"></div>
   `;
@@ -1533,14 +1535,37 @@ function renderRequests(area){
       </tbody></table></div>`;
     document.querySelectorAll('[data-return]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.return, false); render('Requests'); });
     document.querySelectorAll('[data-return-dmg]').forEach(b=>b.onclick=()=>{ LIB.markReturned(b.dataset.returnDmg, true); render('Requests'); });
-    document.querySelectorAll('[data-lost]').forEach(b=>b.onclick=()=>{ if(confirm('Mark this copy as lost? It will stay in the student\'s history as a lost book rather than being marked returned.')){ LIB.markLost(b.dataset.lost); render('Requests'); } });
+    document.querySelectorAll('[data-lost]').forEach(b=>b.onclick=()=>{ if(confirm('Mark this copy as lost? It will stay in the student\'s history as a lost book — permanently — until you confirm they\'ve paid for it.')){ LIB.markLost(b.dataset.lost); render('Requests'); } });
     document.querySelectorAll('[data-adjust]').forEach(b=>b.onclick=()=>adjustDueModal(b.dataset.adjust));
+  };
+  const drawLost = () => {
+    document.getElementById('reqPanel').innerHTML = `
+      <p class="hint" style="color:var(--grey);font-size:12px;margin:0 0 8px;">These stay here permanently — visible in the student's history — until you confirm payment below. This can't happen by accident: it asks you to confirm twice.</p>
+      <div class="table-wrap card"><table><thead><tr><th>Student</th><th>Book</th><th>Price</th><th></th></tr></thead><tbody>
+      ${lost.length ? lost.map(r=>{
+        const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(b=>b.id===r.bookId);
+        return `<tr><td>${LIB.escapeHtml(st?st.name:'—')}</td><td>${LIB.escapeHtml(bk?bk.title:'—')}</td><td>${bk&&bk.price?bk.price+' ETB':'—'}</td>
+          <td class="row-actions"><button class="btn sm primary" data-paid="${r.id}">✓ Mark Paid — Remove from History</button></td></tr>`;
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:16px;">No unresolved lost books</td></tr>`}
+      </tbody></table></div>`;
+    document.querySelectorAll('[data-paid]').forEach(b=>b.onclick=()=>{
+      const id = b.dataset.paid;
+      const r = db.requests.find(x=>x.id===id);
+      const st = db.students.find(s=>s.id===r.studentId); const bk = db.books.find(x=>x.id===r.bookId);
+      openConfirmModal({
+        title: 'Confirm payment received?',
+        message: `This removes "${bk?bk.title:'this book'}" from ${st?st.name:'this student'}'s history permanently — only do this once they've actually paid${bk&&bk.price?` (${bk.price} ETB)`:''}. This can't be undone.`,
+        confirmLabel: 'Yes, Paid — Remove From History',
+        danger: true,
+        onConfirm: () => { LIB.resolveLostAsPaid(id); render('Requests'); }
+      });
+    });
   };
   document.querySelectorAll('.tab-btn').forEach(btn=>{
     btn.onclick = () => {
       document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      btn.dataset.t==='pending' ? drawPending() : drawBorrowed();
+      ({pending:drawPending, borrowed:drawBorrowed, lost:drawLost})[btn.dataset.t]();
     };
   });
   drawPending();

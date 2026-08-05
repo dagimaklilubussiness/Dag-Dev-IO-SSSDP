@@ -930,6 +930,22 @@ const LIB = (() => {
     return getDB().staff.find(x => x.id === s.id) || null;
   }
 
+  // Stores this device's Firebase Cloud Messaging token on the logged-in
+  // student's own record — that's what the notifyOnAnnouncement/
+  // notifyOnDirectMessage Cloud Functions read to know where to push to.
+  // Deliberately self-service only (a student can only ever set their OWN
+  // token, never anyone else's) since it just writes to whichever record the
+  // current session belongs to.
+  function saveMyFcmToken(token){
+    const s = currentStudent();
+    if(!s || !token) return { ok:false, error:"Not logged in as a student." };
+    mutate(db => {
+      const x = db.students.find(y => y.id === s.id);
+      if(x) x.fcmToken = token;
+    });
+    return { ok:true };
+  }
+
   // Admin resets/edits a student's PIN directly — no need for the student to remember anything.
   function adminSetStudentPin(studentId, newPin){
     // Dual-purpose setter: used by the Registrar (admin.html "Reset PIN") AND by a
@@ -1431,6 +1447,20 @@ const LIB = (() => {
   }
   function cancelReservation(id){ if(!isLibrarian()) return; mutate(db => { db.reservations = db.reservations.filter(r => r.id !== id); }); }
 
+  // A lost book's record is deliberately permanent — it must NOT quietly
+  // disappear on its own. Only once the Librarian confirms the student has
+  // actually paid for the replacement does the record get cleared from
+  // their history. This is a separate explicit action from markReturned/
+  // markLost on purpose, so it can never be triggered by an accidental tap.
+  function resolveLostAsPaid(requestId){
+    if(!isLibrarian()) return { ok:false, error:"Only Library Staff can do this." };
+    const db = getDB();
+    const r = db.requests.find(x => x.id === requestId);
+    if(!r || r.status !== "lost") return { ok:false, error:"This isn't a lost-book record." };
+    mutate(db => { db.requests = db.requests.filter(x => x.id !== requestId); });
+    return { ok:true };
+  }
+
   /* ---------------- Annual (textbook) loans — year-end handling ----------------
      Exercise/text books are issued for the whole school year rather than a
      couple of weeks (see approveRequest). At year end, Library Staff need a
@@ -1758,11 +1788,11 @@ const LIB = (() => {
     fileToResizedDataURL, fileToDataURL,
     ETH_MONTHS, isEthLeap, daysInEthMonth, ethToday, computeAgeFromEC, fmtEthDate, fmtEthDateLatin, fmtResidency,
     jdnToGregorian, getAcademicYearEnd, setAcademicYearEnd, academicYearEndISO,
-    annualLoanSummary, textbookYearEndCSV, downloadTextbookReportCSV, resetAnnualLoans, issueAnnualLoan, markLost,
+    annualLoanSummary, textbookYearEndCSV, downloadTextbookReportCSV, resetAnnualLoans, issueAnnualLoan, markLost, resolveLostAsPaid,
     getDB, mutate, ready, getSettings, updateSettings, applyTheme,
     getEnrollmentDeadline, setEnrollmentDeadline, isEnrollmentClosed,
     getSession, setSession, clearSession,
-    adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff,
+    adminRegisterStudent, activateStudent, studentLogin, studentLoginConfirm, staffLogin, currentStudent, currentStaff, saveMyFcmToken,
     submitApplication, listApplications, approveApplication, rejectApplication, clearApplicationDocs, compactReviewedApplications, applicationsStorageInfo, removeApplication, clearApplicationHistory,
     syncStudentShardsNow, studentStorageInfo,
     adminSetStudentPin, adminEditStudent, searchStudents, removeStudent,
