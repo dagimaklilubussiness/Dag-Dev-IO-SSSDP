@@ -20,5 +20,5 @@ self.FIREBASE_CONFIG = {
   messagingSenderId: "585306537782",
   appId: "1:585306537782:web:815edc3647a826deb67d97",
   measurementId: "G-TVPTZT2WTJ",
-  vapidKey: "PASTE_YOUR_VAPID_KEY_HERE"
+  vapidKey: "BDMfZES16EeaiFTz8-TRV8nCpfu_cme-c_H5vVqHZHOo4JeNS4e0yU6c_LiAn_Xv6bW2vSlJ7auEZQZJOEVEjgE"
 };
