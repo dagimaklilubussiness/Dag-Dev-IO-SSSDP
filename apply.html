@@ -36,6 +36,9 @@
   .consent-box input{ margin-top:3px; flex-shrink:0; }
   .doc-upload{ border:2px dashed var(--line); border-radius:12px; padding:18px; text-align:center; font-size:13px; color:var(--grey); cursor:pointer; }
   .doc-upload.has-file{ border-color:var(--ok); color:var(--ok); font-weight:700; background:#f2fbf5; }
+  .mock-example{ margin-top:10px; padding:10px; border:1px dashed var(--line); border-radius:10px; background:#faf9f7; }
+  .mock-example img{ display:block; width:100%; max-width:340px; margin:0 auto; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+  .mock-example p{ margin:8px 0 0; font-size:11.5px; color:var(--grey); text-align:center; }
   .apply-footnote{ text-align:center; font-size:12px; color:var(--grey); margin-top:18px; }
   .ref-card{ text-align:center; padding:34px 20px; }
   .ref-card .num{ font-size:26px; font-weight:800; color:var(--red); letter-spacing:.04em; margin:10px 0 6px; }
@@ -92,12 +95,12 @@
     <div><b>Sheno Secondary School</b><br><span>Online Registration Portal</span></div>
   </div>
   <div class="apply-hero-body">
-    <h1 id="heroTitle">Enroll for the New Academic Year</h1>
-    <p>Grades 9–12 registration — complete the secure form below in about 5 minutes. Your information is encrypted in transit and only visible to the school's authorized Registrar.</p>
+    <h1 id="heroTitle" data-i18n="hero_title">Enroll for the New Academic Year</h1>
+    <p data-i18n="hero_desc">Grades 9–12 registration — complete the secure form below in about 5 minutes. Your information is encrypted in transit and only visible to the school's authorized Registrar.</p>
     <div class="trust-row">
-      <span class="trust-pill">🔒 HTTPS Encrypted</span>
-      <span class="trust-pill">👪 Parent/Guardian Consent Required</span>
-      <span class="trust-pill">🔐 Reviewed by Registrar Only</span>
+      <span class="trust-pill" data-i18n="trust_https">🔒 HTTPS Encrypted</span>
+      <span class="trust-pill" data-i18n="trust_consent">👪 Parent/Guardian Consent Required</span>
+      <span class="trust-pill" data-i18n="trust_registrar">🔐 Reviewed by Registrar Only</span>
     </div>
   </div>
   <div class="tibeb-strip textured thin"></div>
@@ -109,10 +112,10 @@
   <div id="formMsg"></div>
 
   <form id="applyForm">
-    <div class="apply-step"><div class="num">1</div><h2>Student Information</h2></div>
+    <div class="apply-step"><div class="num">1</div><h2 data-i18n="step1_title">Student Information</h2></div>
     <div class="card">
-      <div class="field"><label>Full Legal Name *</label><input id="apName" required></div>
-      <div class="field"><label>Date of Birth (Ethiopian Calendar) *</label>
+      <div class="field"><label data-i18n="lbl_full_name">Full Legal Name *</label><input id="apName" required></div>
+      <div class="field"><label data-i18n="lbl_dob">Date of Birth (Ethiopian Calendar) *</label>
         <div class="grid cols-3">
           <select id="apEcDay" aria-label="Day" required></select>
           <select id="apEcMonth" aria-label="Month" required></select>
@@ -120,36 +123,40 @@
         </div>
       </div>
       <div class="grid cols-2">
-        <div class="field"><label>Gender *</label>
+        <div class="field"><label data-i18n="lbl_gender">Gender *</label>
           <select id="apGender" required>
-            <option value="">— Select —</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
+            <option value="" data-i18n="opt_select">— Select —</option>
+            <option value="male" data-i18n="opt_male">Male</option>
+            <option value="female" data-i18n="opt_female">Female</option>
           </select>
         </div>
-        <div class="field"><label>Grade Applying For *</label>
+        <div class="field"><label data-i18n="lbl_grade">Grade Applying For *</label>
           <select id="apGrade" required>
-            <option value="">— Select —</option>
-            <option value="9">Grade 9</option>
-            <option value="10">Grade 10</option>
-            <option value="11">Grade 11</option>
-            <option value="12">Grade 12</option>
+            <option value="" data-i18n="opt_select">— Select —</option>
+            <option value="9" data-i18n="opt_g9">Grade 9</option>
+            <option value="10" data-i18n="opt_g10">Grade 10</option>
+            <option value="11" data-i18n="opt_g11">Grade 11</option>
+            <option value="12" data-i18n="opt_g12">Grade 12</option>
           </select>
         </div>
       </div>
-      <div class="field"><label>School-Issued ID (leave blank if new)</label><input id="apExistingId" placeholder="Only if you already have one"></div>
-      <div class="field"><label>FAN (16 digit, from your National ID) *</label><input id="apFan" maxlength="16" inputmode="numeric" placeholder="Copy exactly from the National ID" required></div>
-      <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 0;">This is the 16-digit number printed on the student's National ID (Fayda) — copy it exactly.</p>
+      <div class="field"><label data-i18n="lbl_existing_id">School-Issued ID (leave blank if new)</label><input id="apExistingId" placeholder="Only if you already have one"></div>
+      <div class="field"><label data-i18n="lbl_fan">FAN (16 digit, from your National ID) *</label><input id="apFan" maxlength="16" inputmode="numeric" placeholder="Copy exactly from the National ID" required></div>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 0;" data-i18n="hint_fan">This is the 16-digit number printed on the student's National ID (Fayda) — copy it exactly.</p>
+      <div class="mock-example">
+        <img src="mock-fan-number.jpg" alt="Example of where the FAN number is printed on a National ID" loading="lazy">
+        <p data-i18n="mock_fan_caption">Example — the FAN is the number above the barcode, labeled "FAN".</p>
+      </div>
     </div>
 
-    <div class="apply-step"><div class="num">2</div><h2>Contact &amp; Address</h2></div>
+    <div class="apply-step"><div class="num">2</div><h2 data-i18n="step2_title">Contact &amp; Address</h2></div>
     <div class="card">
       <div class="grid cols-2">
-        <div class="field"><label>Student Email</label><input id="apStudentEmail" type="email" placeholder="optional"></div>
-        <div class="field"><label>Student Phone</label><input id="apStudentPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
+        <div class="field"><label data-i18n="lbl_stu_email">Student Email</label><input id="apStudentEmail" type="email" placeholder="optional"></div>
+        <div class="field"><label data-i18n="lbl_stu_phone">Student Phone</label><input id="apStudentPhone" inputmode="tel" placeholder="e.g. 09XXXXXXXX"></div>
       </div>
-      <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-4px 0 12px;">Provide at least one — email or phone.</p>
-      <div class="field"><label>Residence (Town / Kebele / Sefer)</label>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-4px 0 12px;" data-i18n="hint_email_phone">Provide at least one — email or phone.</p>
+      <div class="field"><label data-i18n="lbl_residence">Residence (Town / Kebele / Sefer)</label>
         <div class="grid cols-3">
           <input id="apResTown" placeholder="Town" required>
           <input id="apResKebele" placeholder="Kebele">
@@ -158,45 +165,53 @@
       </div>
     </div>
 
-    <div class="apply-step"><div class="num">3</div><h2>Parent / Guardian Details</h2></div>
+    <div class="apply-step"><div class="num">3</div><h2 data-i18n="step3_title">Parent / Guardian Details</h2></div>
     <div class="card">
-      <div class="field"><label>Parent / Guardian Full Name *</label><input id="apGuardianName" required></div>
+      <div class="field"><label data-i18n="lbl_guardian_name">Parent / Guardian Full Name *</label><input id="apGuardianName" required></div>
       <div class="grid cols-2">
-        <div class="field"><label>Parent / Guardian Phone *</label><input id="apGuardianPhone" inputmode="tel" required></div>
-        <div class="field"><label>Parent / Guardian Email</label><input id="apGuardianEmail" type="email" placeholder="optional"></div>
+        <div class="field"><label data-i18n="lbl_guardian_phone">Parent / Guardian Phone *</label><input id="apGuardianPhone" inputmode="tel" required></div>
+        <div class="field"><label data-i18n="lbl_guardian_email">Parent / Guardian Email</label><input id="apGuardianEmail" type="email" placeholder="optional"></div>
       </div>
     </div>
 
-    <div class="apply-step"><div class="num">4</div><h2>Supporting Documents</h2></div>
+    <div class="apply-step"><div class="num">4</div><h2 data-i18n="step4_title">Supporting Documents</h2></div>
     <div class="card">
-      <label class="field"><span>National ID (Face Page) — photo, max 4MB</span></label>
-      <label class="doc-upload" id="idDocUploadLabel" for="apIdDoc">🪪 Tap to choose a file</label>
+      <label class="field"><span data-i18n="lbl_id_doc">National ID (Face Page) — photo, max 4MB</span></label>
+      <label class="doc-upload" id="idDocUploadLabel" for="apIdDoc" data-i18n="btn_choose_file">🪪 Tap to choose a file</label>
       <input type="file" id="apIdDoc" accept="image/*" style="display:none;">
       <div id="idDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
+      <div class="mock-example">
+        <img src="mock-national-id.jpg" alt="Example of a National ID front page photo" loading="lazy">
+        <p data-i18n="mock_id_caption">Example — take a clear, well-lit photo of the front (obverse) of the National ID, like this.</p>
+      </div>
 
       <div id="resultDocBox" style="margin-top:16px;">
         <label class="field"><span id="resultDocLabel">Previous Year's Result / Report Card — photo, max 4MB</span></label>
-        <label class="doc-upload" id="resultDocUploadLabel" for="apResultDoc">📄 Tap to choose a file</label>
+        <label class="doc-upload" id="resultDocUploadLabel" for="apResultDoc" data-i18n="btn_choose_file2">📄 Tap to choose a file</label>
         <input type="file" id="apResultDoc" accept="image/*" style="display:none;">
         <div id="resultDocErr" style="color:var(--danger);font-size:12px;margin-top:6px;"></div>
         <div class="field" style="margin-top:12px;"><label id="resultScoreLabel">Grade 8 Ministry Result (out of 100)</label><input id="apPrevResultScore" type="number" min="0" max="100" step="0.01" placeholder="e.g. 87"></div>
-        <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 0;">This helps the school place students fairly and evenly across sections.</p>
+        <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 0;" data-i18n="hint_placement">This helps the school place students fairly and evenly across sections.</p>
+        <div class="mock-example" id="resultMockExample">
+          <img src="mock-previous-result.jpg" alt="Example of a previous result / report card photo" loading="lazy">
+          <p data-i18n="mock_result_caption">Example (Grades 10–12) — photograph your previous grade's report card fully and clearly, like this.</p>
+        </div>
       </div>
     </div>
 
-    <div class="apply-step"><div class="num">5</div><h2>Consent</h2></div>
+    <div class="apply-step"><div class="num">5</div><h2 data-i18n="step5_title">Consent</h2></div>
     <div class="consent-box">
       <input type="checkbox" id="apConsentInfo" required>
-      <label for="apConsentInfo">As the parent/guardian (or the student, if 18+), I consent to Sheno Secondary School collecting and storing this information for enrollment review purposes. *</label>
+      <label for="apConsentInfo" data-i18n="consent_info">As the parent/guardian (or the student, if 18+), I consent to Sheno Secondary School collecting and storing this information for enrollment review purposes. *</label>
     </div>
     <div class="consent-box">
       <input type="checkbox" id="apConsentPhotos">
-      <label for="apConsentPhotos">I also consent to the student appearing in official school photos or publications (optional — you can decline and still register).</label>
+      <label for="apConsentPhotos" data-i18n="consent_photos">I also consent to the student appearing in official school photos or publications (optional — you can decline and still register).</label>
     </div>
 
     <div id="submitErr" style="color:var(--danger);font-size:13px;margin-bottom:10px;"></div>
-    <button class="btn primary block" type="submit" id="submitBtn">Submit Application</button>
-    <p class="apply-footnote">Fields marked * are required. You'll receive a reference number after submitting.</p>
+    <button class="btn primary block" type="submit" id="submitBtn" data-i18n="btn_submit">Submit Application</button>
+    <p class="apply-footnote" data-i18n="footnote_required">Fields marked * are required. You'll receive a reference number after submitting.</p>
   </form>
 
   <div id="successCard" class="card ref-card hidden">
@@ -229,6 +244,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 <script>
 // Shows any cloud-sync failure (offline, Firestore rules, or a shared doc
@@ -325,9 +341,13 @@ function initApplyPage(){
   // instead — different wording, same requirement: proof of the previous grade.
   const REQUIRES_PREV_RESULT = ['9','10','11','12'];
   const resultScoreLabel = document.getElementById('resultScoreLabel');
+  const resultMockExample = document.getElementById('resultMockExample');
   const refreshResultBox = () => {
     const g = gradeSel.value;
     resultBox.classList.toggle('hidden', !REQUIRES_PREV_RESULT.includes(g));
+    // The mock example photo is a Grades 10-12 report card, so only show it
+    // for that flow — it doesn't apply to Grade 9's Ministry result photo.
+    if(resultMockExample) resultMockExample.classList.toggle('hidden', g === '9');
     if(resultLabel) resultLabel.textContent = g === '9'
       ? "Grade 8 Ministry Result — photo, max 4MB"
       : "Previous Year's Result / Report Card — photo, max 4MB";

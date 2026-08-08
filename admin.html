@@ -42,16 +42,16 @@
       </div>
       <div id="authMsg" aria-live="polite"></div>
       <form id="loginForm" class="hidden">
-        <div class="field"><label for="loginUser">የተጠቃሚ ስም</label><input id="loginUser" required autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+        <div class="field"><label for="loginUser" data-i18n="admin_username">የተጠቃሚ ስም</label><input id="loginUser" required autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
         <div class="field">
-          <label for="loginPw">የይለፍ ቃል</label>
+          <label for="loginPw" data-i18n="admin_password">የይለፍ ቃል</label>
           <div class="pw-wrap">
             <input id="loginPw" type="password" required autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false">
             <button type="button" class="pw-toggle" id="pwToggle" aria-label="የይለፍ ቃል አሳይ/ደብቅ">👁</button>
           </div>
         </div>
-        <button class="btn primary block" type="submit">ግባ</button>
-        <p class="helper-link">ተማሪ ነዎት? <a href="index.html">የተማሪ መግቢያ →</a></p>
+        <button class="btn primary block" type="submit" data-i18n="login_submit">ግባ</button>
+        <p class="helper-link"><span data-i18n="admin_student_q">ተማሪ ነዎት?</span> <a href="index.html" data-i18n="admin_student_link">የተማሪ መግቢያ →</a></p>
       </form>
 
       <!-- Shown ONLY when no staff account exists yet (fresh install). The
@@ -124,6 +124,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="firebase-config.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 <script>
 LIB.applyTheme();

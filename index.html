@@ -49,19 +49,19 @@
            which activates the account, so login is all students need here. -->
       <form id="loginForm">
         <div class="field">
-          <label for="loginFan4">የFAN መጀመሪያ 4 ዲጂት</label>
+          <label for="loginFan4" data-i18n="login_fan_label">የFAN መጀመሪያ 4 ዲጂት</label>
           <input id="loginFan4" inputmode="numeric" maxlength="4" placeholder="XXXX" required>
         </div>
         <div class="field">
-          <label for="loginPin">የይለፍ ቁጥር (4-digit PIN)</label>
+          <label for="loginPin" data-i18n="login_pin_label">የይለፍ ቁጥር (4-digit PIN)</label>
           <div class="pw-wrap">
             <input id="loginPin" class="pin-input" type="password" inputmode="numeric" maxlength="4" required>
             <button type="button" class="pw-toggle" data-target="loginPin" aria-label="የይለፍ ቁጥር አሳይ/ደብቅ">👁</button>
           </div>
         </div>
-        <button class="btn primary block" type="submit">ግባ</button>
-        <p class="helper-link">አድሚን / ላይብረሪ ነዎት? <a href="admin.html">የአድሚን መግቢያ →</a></p>
-        <p class="helper-link">አዲስ ተማሪ ነዎት? <a href="apply.html">ለምዝገባ ያመልክቱ / Apply to enroll →</a></p>
+        <button class="btn primary block" type="submit" data-i18n="login_submit">ግባ</button>
+        <p class="helper-link"><span data-i18n="login_admin_q">አድሚን / ላይብረሪ ነዎት?</span> <a href="admin.html" data-i18n="login_admin_link">የአድሚን መግቢያ →</a></p>
+        <p class="helper-link"><span data-i18n="login_new_q">አዲስ ተማሪ ነዎት?</span> <a href="apply.html" data-i18n="login_apply_link">ለምዝገባ ያመልክቱ / Apply to enroll →</a></p>
       </form>
     </div>
   </div>
@@ -74,7 +74,7 @@
     <div class="brand" id="brandTop">SSSDP<small id="studentNameTag"></small></div>
     <div class="spacer"></div>
     <span class="cloud-dot" id="cloudDot" title="የደመና ግንኙነት ሁኔታ / Cloud sync status"></span>
-    <button class="tb-btn" id="logoutBtn">ውጣ</button>
+    <button class="tb-btn" id="logoutBtn" data-i18n="logout">ውጣ</button>
   </div>
   <div class="tibeb-strip thin"></div>
   <div id="syncErrorBanner" style="display:none;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;padding:10px 14px;margin:10px;border-radius:8px;font-size:13px;"></div>
@@ -135,10 +135,10 @@
   </footer>
 
   <nav class="bottom-nav" aria-label="ዋና ዝርዝር">
-    <button class="nav-btn active" data-view="Home"><span class="ic" aria-hidden="true">🏠</span>Home</button>
-    <button class="nav-btn" data-view="Library"><span class="ic" aria-hidden="true">📚</span>Library</button>
-    <button class="nav-btn" data-view="Inbox"><span class="ic" aria-hidden="true">🔔</span>Inbox<span id="inboxBadge" class="nav-badge hidden"></span></button>
-    <button class="nav-btn" data-view="Profile"><span class="ic" aria-hidden="true">👤</span>Profile</button>
+    <button class="nav-btn active" data-view="Home"><span class="ic" aria-hidden="true">🏠</span><span data-i18n="nav_home">Home</span></button>
+    <button class="nav-btn" data-view="Library"><span class="ic" aria-hidden="true">📚</span><span data-i18n="nav_library">Library</span></button>
+    <button class="nav-btn" data-view="Inbox"><span class="ic" aria-hidden="true">🔔</span><span data-i18n="nav_inbox">Inbox</span><span id="inboxBadge" class="nav-badge hidden"></span></button>
+    <button class="nav-btn" data-view="Profile"><span class="ic" aria-hidden="true">👤</span><span data-i18n="nav_profile">Profile</span></button>
   </nav>
 </div>
 
@@ -146,6 +146,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
 <script src="firebase-config.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 <script>
 // Shows any cloud-sync failure (offline, Firestore rules, or the shared DB
