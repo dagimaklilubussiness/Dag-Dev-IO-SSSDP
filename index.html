@@ -368,15 +368,15 @@ function renderHome(student){
       <div class="avatar-row">
         ${avatarHtml(student)}
         <div>
-          <div style="font-size:12.5px; opacity:.8;">እንኳን ደህና መጡ</div>
+          <div style="font-size:12.5px; opacity:.8;" data-i18n="home_welcome">እንኳን ደህና መጡ</div>
           <h2 style="color:#fff; margin:2px 0 0;">${LIB.escapeHtml(student.name)}</h2>
-          <div style="font-size:12px; opacity:.85;">ክፍል ${LIB.escapeHtml(String(student.class))} • ክፍል ${LIB.escapeHtml(String(student.section))}</div>
+          <div style="font-size:12px; opacity:.85;"><span data-i18n="word_grade">ክፍል</span> ${LIB.escapeHtml(String(student.class))} • <span data-i18n="word_section">ክፍል</span> ${LIB.escapeHtml(String(student.section))}</div>
         </div>
       </div>
     </div>
     <div class="stat-row" style="margin-top:14px;">
-      <div class="stat-box"><div class="n">${myReqs.length}</div><div class="l">በእጅ ያሉ መጻሕፍት</div></div>
-      <div class="stat-box"><div class="n" style="color:${overdue.length?'var(--danger)':'inherit'}">${overdue.length}</div><div class="l">ያለፈባቸው</div></div>
+      <div class="stat-box"><div class="n">${myReqs.length}</div><div class="l" data-i18n="stat_books_hand">በእጅ ያሉ መጻሕፍት</div></div>
+      <div class="stat-box"><div class="n" style="color:${overdue.length?'var(--danger)':'inherit'}">${overdue.length}</div><div class="l" data-i18n="stat_overdue">ያለፈባቸው</div></div>
     </div>`;
 
   if(overdue.length){
@@ -392,8 +392,8 @@ function renderHome(student){
     html += `<div class="msg error" style="margin-top:14px;">🔕 Notifications are blocked for this site. To get announcement alerts, allow notifications for this site in your phone's browser settings.</div>`;
   }
 
-  html += `<div class="section-title"><h2>📢 የቅርብ ጊዜ ማስታወቂያዎች</h2></div>`;
-  if(!anns.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም ማስታወቂያ የለም</div>`; }
+  html += `<div class="section-title"><h2><span data-i18n="ann_latest_title">📢 የቅርብ ጊዜ ማስታወቂያዎች</span></h2></div>`;
+  if(!anns.length){ html += `<div class="empty"><span class="ic">📭</span><span data-i18n="empty_no_ann">ምንም ማስታወቂያ የለም</span></div>`; }
   anns.forEach(a => { html += announcementCardHtml(a); });
 
   document.getElementById('viewHome').innerHTML = html;
@@ -405,6 +405,7 @@ function renderHome(student){
 
 function announcementCardHtml(a){
   const roleLabel = a.postedByRole === 'director' ? 'ዳይሬክተር' : 'ላይብረሪ';
+  const roleKey = a.postedByRole === 'director' ? 'role_director' : 'role_library';
   let media = '';
   if(a.mediaUrl){
     if(a.mediaType === 'video') media = `<div class="ann-media"><video src="${LIB.escapeAttr(a.mediaUrl)}" controls></video>
@@ -415,7 +416,7 @@ function announcementCardHtml(a){
   }
   return `
   <div class="card ann-card" data-ann="${a.id}">
-    <div class="ann-meta"><span class="who">${LIB.escapeHtml(a.postedBy)}</span><span class="badge grey">${roleLabel}</span><span>${LIB.fmtDate(a.date)}</span></div>
+    <div class="ann-meta"><span class="who">${LIB.escapeHtml(a.postedBy)}</span><span class="badge grey" data-i18n="${roleKey}">${roleLabel}</span><span>${LIB.fmtDate(a.date)}</span></div>
     <h4 style="margin:0 0 4px;">${LIB.escapeHtml(a.title)}</h4>
     <p>${LIB.escapeHtml(a.body)}</p>
     ${media}
@@ -471,18 +472,18 @@ function bookCardHtml(b, student){
     // see availability and collect the physical copy from the Librarian, who
     // records it directly (see 🎒 Issue to Student on the admin side).
     actionHtml = mine
-      ? `<span class="badge ok">በእጅዎ • ዓመቱ መጨረሻ ይመለሳል</span>`
-      : `<span class="badge grey">📅 ከላይብረሪያን ውሰዱ</span>`;
+      ? `<span class="badge ok" data-i18n="lib_badge_inhand_yearend">በእጅዎ • ዓመቱ መጨረሻ ይመለሳል</span>`
+      : `<span class="badge grey" data-i18n="lib_badge_available">📅 ከላይብረሪያን ውሰዱ</span>`;
   } else if(mine){
     actionHtml = mine.status==='pending'
-      ? `<span class="badge warn">✔ ተጠይቋል • ማጽደቅ ይጠበቃል</span>`
-      : `<span class="badge ok">በእጅዎ • መመለሻ ${LIB.fmtDate(mine.dueDate)}</span>`;
+      ? `<span class="badge warn" data-i18n="lib_badge_requested">✔ ተጠይቋል • ማጽደቅ ይጠበቃል</span>`
+      : `<span class="badge ok"><span data-i18n="lib_badge_inhand_prefix">በእጅዎ • መመለሻ</span> ${LIB.fmtDate(mine.dueDate)}</span>`;
   } else if(stats.available > 0){
-    actionHtml = `<button class="btn primary sm" data-req="${b.id}">ውሰድ (Request)</button>`;
+    actionHtml = `<button class="btn primary sm" data-req="${b.id}" data-i18n="btn_borrow">ውሰድ (Request)</button>`;
   } else if(reserved){
-    actionHtml = `<span class="badge grey">በወረፋ ውስጥ</span>`;
+    actionHtml = `<span class="badge grey" data-i18n="badge_in_queue">በወረፋ ውስጥ</span>`;
   } else {
-    actionHtml = `<button class="btn outline sm" data-res="${b.id}">ወረፋ ግባ</button>`;
+    actionHtml = `<button class="btn outline sm" data-res="${b.id}" data-i18n="btn_join_queue">ወረፋ ግባ</button>`;
   }
   return `
   <div class="book-card">
@@ -491,7 +492,7 @@ function bookCardHtml(b, student){
       <h4>${LIB.escapeHtml(b.title)} ${b.annualLoan?'<span class="badge warn" style="font-size:9.5px;">📅 Annual</span>':''}</h4>
       <div class="author">${LIB.escapeHtml(b.author||'')}</div>
       <div style="font-size:11.5px;color:var(--grey)">${LIB.escapeHtml(b.condition||'')}</div>
-      <div class="avail-row"><span>ይገኛል: ${stats.available}/${stats.total}</span>${actionHtml}</div>
+      <div class="avail-row"><span><span data-i18n="lbl_available">ይገኛል</span>: ${stats.available}/${stats.total}</span>${actionHtml}</div>
     </div>
   </div>`;
 }
@@ -519,8 +520,8 @@ function wireBookCards(student){
    announcement feed from Director AND Librarian. See LIB.sendDirectMessage. */
 function renderInbox(student){
   const msgs = LIB.listDirectMessagesFor(student.id);
-  let html = `<h2>🔔 Inbox</h2><p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;">የላይብረሪያን የግል መልዕክቶች / Private messages from the Librarian, addressed to you.</p>`;
-  if(!msgs.length){ html += `<div class="empty"><span class="ic">📭</span>ምንም መልዕክት የለም</div>`; }
+  let html = `<h2 data-i18n="inbox_title">🔔 Inbox</h2><p class="hint" style="color:var(--grey);font-size:12px;margin:-6px 0 14px;" data-i18n="inbox_hint">የላይብረሪያን የግል መልዕክቶች / Private messages from the Librarian, addressed to you.</p>`;
+  if(!msgs.length){ html += `<div class="empty"><span class="ic">📭</span><span data-i18n="empty_no_msg">ምንም መልዕክት የለም</span></div>`; }
   msgs.forEach(m => { html += directMessageCardHtml(m); });
   document.getElementById('viewInbox').innerHTML = html;
   wireDirectMessageCards(student);
@@ -530,7 +531,7 @@ function renderInbox(student){
 function directMessageCardHtml(m){
   return `
   <div class="card ann-card" data-msg="${m.id}">
-    <div class="ann-meta"><span class="who">${LIB.escapeHtml(m.postedBy)}</span><span class="badge grey">ላይብረሪ</span><span>${LIB.fmtDateTime(m.date)}</span></div>
+    <div class="ann-meta"><span class="who">${LIB.escapeHtml(m.postedBy)}</span><span class="badge grey" data-i18n="role_library">ላይብረሪ</span><span>${LIB.fmtDateTime(m.date)}</span></div>
     <h4 style="margin:0 0 4px;">${LIB.escapeHtml(m.title)}</h4>
     <p>${LIB.escapeHtml(m.body)}</p>
   </div>`;
@@ -560,46 +561,45 @@ function renderProfile(student){
   const myReqs = LIB.myRequests(student.id).sort((a,b)=> new Date(b.requestedAt)-new Date(a.requestedAt));
   const db = LIB.getDB();
   let html = `
-    <h2>👤 መገለጫ</h2>
+    <h2 data-i18n="profile_title">👤 መገለጫ</h2>
     <div class="card">
       <div class="avatar-row" style="margin-bottom:12px;">
         ${avatarHtml(student, 'lg')}
         <div>
           <div style="font-weight:800;font-size:15px;">${LIB.escapeHtml(student.name)}</div>
-          <div style="font-size:12px;color:var(--grey);">ፎቶ በአድሚን ብቻ ይስተካከላል</div>
         </div>
       </div>
       <div class="grid cols-2">
-        <div><div class="field"><label>ክፍል / ክፍለ ክፍል</label><div>${LIB.escapeHtml(String(student.class))} / ${LIB.escapeHtml(String(student.section))}</div></div></div>
-        <div><div class="field"><label>እድሜ</label><div>${student.age||'—'}</div></div></div>
-        <div><div class="field"><label>የልደት ቀን (EC)</label><div>${LIB.escapeHtml(LIB.fmtEthDate(student.ecBirth))}</div></div></div>
+        <div><div class="field"><label data-i18n="profile_lbl_class">ክፍል / ክፍለ ክፍል</label><div>${LIB.escapeHtml(String(student.class))} / ${LIB.escapeHtml(String(student.section))}</div></div></div>
+        <div><div class="field"><label data-i18n="profile_lbl_age">እድሜ</label><div>${student.age||'—'}</div></div></div>
+        <div><div class="field"><label data-i18n="profile_lbl_dob">የልደት ቀን (EC)</label><div>${LIB.escapeHtml(LIB.fmtEthDate(student.ecBirth))}</div></div></div>
         <div style="grid-column:1/-1;"><div class="field"><label>FAN</label><div>${LIB.escapeHtml(student.fan)}</div></div></div>
       </div>
     </div>
 
-    <div class="section-title"><h2>🔔 ማሳወቂያ / Notifications</h2></div>
+    <div class="section-title"><h2 data-i18n="profile_notif_title">🔔 ማሳወቂያ / Notifications</h2></div>
     <div class="card">
       <div id="notifStatusMsg" style="font-size:12.5px;margin-bottom:8px;"></div>
       <button class="btn primary sm" id="enableNotifBtnProfile">🔔 Enable Notifications</button>
     </div>
 
-    <div class="section-title"><h2>🔑 PIN ቀይር</h2></div>
+    <div class="section-title"><h2 data-i18n="profile_pin_title">🔑 PIN ቀይር</h2></div>
     <div class="card">
-      <div class="field"><label for="newPin">አዲስ 4-ዲጂት PIN</label><input id="newPin" class="pin-input" type="password" inputmode="numeric" maxlength="4"></div>
-      <button class="btn primary sm" id="savePinBtn">አስቀምጥ</button>
+      <div class="field"><label for="newPin" data-i18n="profile_pin_new_label">አዲስ 4-ዲጂት PIN</label><input id="newPin" class="pin-input" type="password" inputmode="numeric" maxlength="4"></div>
+      <button class="btn primary sm" id="savePinBtn" data-i18n="btn_save">አስቀምጥ</button>
       <span id="pinMsg" style="font-size:12px;margin-inline-start:8px;"></span>
     </div>
 
-    <div class="section-title"><h2>📖 የውሰት ታሪክ</h2></div>
+    <div class="section-title"><h2 data-i18n="profile_loan_history_title">📖 የውሰት ታሪክ</h2></div>
     <div class="table-wrap card">
-      <table><thead><tr><th>መጽሐፍ</th><th>ሁኔታ</th><th>የተጠየቀበት</th><th>መመለሻ ቀን</th></tr></thead><tbody>
+      <table><thead><tr><th data-i18n="th_book">መጽሐፍ</th><th data-i18n="th_status">ሁኔታ</th><th data-i18n="th_requested">የተጠየቀበት</th><th data-i18n="th_due">መመለሻ ቀን</th></tr></thead><tbody>
       ${myReqs.length ? myReqs.map(r => {
         const book = db.books.find(b=>b.id===r.bookId);
         const overdue = r.status==='borrowed' && LIB.isOverdue(r.dueDate);
-        const statusBadge = { pending:'<span class="badge warn">በመጠባበቅ</span>', borrowed: overdue? '<span class="badge danger">ዘግይቷል</span>':'<span class="badge ok">በእጅ</span>',
-          returned:'<span class="badge grey">ተመልሷል</span>', rejected:'<span class="badge danger">ተቀባይነት አላገኘም</span>' }[r.status];
+        const statusBadge = { pending:'<span class="badge warn" data-i18n="badge_pending">በመጠባበቅ</span>', borrowed: overdue? '<span class="badge danger" data-i18n="badge_late">ዘግይቷል</span>':'<span class="badge ok" data-i18n="badge_inhand">በእጅ</span>',
+          returned:'<span class="badge grey" data-i18n="badge_returned">ተመልሷል</span>', rejected:'<span class="badge danger" data-i18n="badge_rejected">ተቀባይነት አላገኘም</span>' }[r.status];
         return `<tr class="${overdue?'overdue-row':''}"><td>${LIB.escapeHtml(book?book.title:'—')}</td><td>${statusBadge}</td><td>${LIB.fmtDate(r.requestedAt)}</td><td>${r.dueDate?LIB.fmtDate(r.dueDate):'—'}</td></tr>`;
-      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:20px;">ምንም ታሪክ የለም</td></tr>`}
+      }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--grey);padding:20px;" data-i18n="empty_no_history">ምንም ታሪክ የለም</td></tr>`}
       </tbody></table>
     </div>
   `;

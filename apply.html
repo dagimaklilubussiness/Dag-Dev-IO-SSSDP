@@ -98,10 +98,11 @@
     <h1 id="heroTitle" data-i18n="hero_title">Enroll for the New Academic Year</h1>
     <p data-i18n="hero_desc">Grades 9–12 registration — complete the secure form below in about 5 minutes. Your information is encrypted in transit and only visible to the school's authorized Registrar.</p>
     <div class="trust-row">
-      <span class="trust-pill" data-i18n="trust_https">🔒 HTTPS Encrypted</span>
-      <span class="trust-pill" data-i18n="trust_consent">👪 Parent/Guardian Consent Required</span>
-      <span class="trust-pill" data-i18n="trust_registrar">🔐 Reviewed by Registrar Only</span>
+      <span class="trust-pill">🔒 HTTPS Encrypted</span>
+      <span class="trust-pill">👪 Parent/Guardian Consent Required</span>
+      <span class="trust-pill">🔐 Reviewed by Registrar Only</span>
     </div>
+    <p class="hint" style="color:var(--gold,#B08D57);font-weight:700;font-size:12.5px;margin:10px 0 0;" data-i18n="notice_english_only">✍️ Please fill in ALL fields in English (Latin letters) — including names, address, and any written answers.</p>
   </div>
   <div class="tibeb-strip textured thin"></div>
 </div>
@@ -114,7 +115,8 @@
   <form id="applyForm">
     <div class="apply-step"><div class="num">1</div><h2 data-i18n="step1_title">Student Information</h2></div>
     <div class="card">
-      <div class="field"><label data-i18n="lbl_full_name">Full Legal Name *</label><input id="apName" required></div>
+      <div class="field"><label data-i18n="lbl_full_name">Full Legal Name *</label><input id="apName" placeholder="e.g. Dagim Aklilu Tadese" required></div>
+      <p class="hint" style="color:var(--grey);font-size:11.5px;margin:-8px 0 12px;" data-i18n="hint_name_english">Please write all names in English (Latin letters) — example: Dagim Aklilu Tadese.</p>
       <div class="field"><label data-i18n="lbl_dob">Date of Birth (Ethiopian Calendar) *</label>
         <div class="grid cols-3">
           <select id="apEcDay" aria-label="Day" required></select>
@@ -167,7 +169,7 @@
 
     <div class="apply-step"><div class="num">3</div><h2 data-i18n="step3_title">Parent / Guardian Details</h2></div>
     <div class="card">
-      <div class="field"><label data-i18n="lbl_guardian_name">Parent / Guardian Full Name *</label><input id="apGuardianName" required></div>
+      <div class="field"><label data-i18n="lbl_guardian_name">Parent / Guardian Full Name *</label><input id="apGuardianName" placeholder="e.g. Aklilu Tadese Bekele" required></div>
       <div class="grid cols-2">
         <div class="field"><label data-i18n="lbl_guardian_phone">Parent / Guardian Phone *</label><input id="apGuardianPhone" inputmode="tel" required></div>
         <div class="field"><label data-i18n="lbl_guardian_email">Parent / Guardian Email</label><input id="apGuardianEmail" type="email" placeholder="optional"></div>
